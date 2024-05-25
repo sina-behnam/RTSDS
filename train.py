@@ -2,10 +2,45 @@
 import numpy as np
 import torch
 import utils
+from callbacks import Callback
+from torch.utils.data import DataLoader
 
 
+def train(
+    epoch : int,
+    model : torch.nn.Module,
+    train_loader : DataLoader,
+    criterion : torch.nn.Module,
+    optimizer : torch.optim.Optimizer,
+    init_lr : float,
+    max_iter : int,
+    power : float =0.9,
+    lr_decay_iter : float =1.0,
+    device : str ='cpu',
+    callbacks : list[Callback]  = []):
+    '''Training function for a single epoch.
 
-def train(epoch, model, train_loader, criterion, optimizer, init_lr, max_iter, power=0.9, lr_decay_iter=1, device='cpu'):
+    Args:
+        epoch (int): Current epoch number
+        model (nn.Module): Model to train
+        train_loader (DataLoader): Training loader
+        criterion (nn.Module): Loss function
+        optimizer (torch.optim.Optimizer): Optimizer
+        init_lr (float): Initial learning rate
+        max_iter (int): Maximum number of iterations
+        power (float): Power factor for polynomial learning rate decay
+        lr_decay_iter (flaot): Learning rate decay interval
+        device (str): Device to run the training on
+        callbacks (list): List of callback functions to run during training
+    
+    Returns:    
+        nn.Module: Trained model
+    '''
+
+    # setup callbacks
+    for callback in callbacks:
+        callback.on_train_begin()
+
     model.train()
     running_loss = 0.0
     correct = 0
@@ -62,13 +97,48 @@ def train(epoch, model, train_loader, criterion, optimizer, init_lr, max_iter, p
         total += targets.size(0) * targets.size(1) * targets.size(2)  # Total number of pixels
         correct += predicted.eq(targets).sum().item()  # Sum of correctly predicted pixels
 
+        # Run batch end callbacks
+        for callback in callbacks:
+            callback.on_batch_end(batch_idx, running_loss, correct, total)
+
     # Calculate average loss and accuracy for the epoch
     train_loss = running_loss / len(train_loader)
     train_accuracy = 100. * correct / total
     print(f'Train Epoch: {epoch + 1} Loss: {train_loss:.6f} Acc: {train_accuracy:.2f}%')
 
+    # Run epoch end callbacks
+    for callback in callbacks:
+        callback.on_epoch_end(epoch, train_loss, train_accuracy)
 
-def val(epoch, model, val_loader, criterion, num_classes, device):
+    return model
+
+
+def val(
+    epoch : int,
+    model : torch.nn.Module,
+    val_loader : DataLoader,
+    num_classes : int,
+    device : str = 'cpu',
+    callbacks : list[Callback] = []):
+
+    '''Validation function 
+
+    Args:
+        epoch (int): Current epoch number
+        model (nn.Module): Model to evaluate
+        val_loader (DataLoader): Validation loader
+        num_classes (int): Number of classes in the dataset
+        device (str): Device to run the evaluation on
+        callbacks (list): List of callback functions to run during validation
+    
+    Returns:    
+        float: Mean IoU for the validation set
+    '''
+
+    # Run validation begin callbacks
+    for callback in callbacks:
+        callback.on_validation_begin()
+
     model.eval()
     total_hist = np.zeros((num_classes, num_classes))  # Initialize total histogram for all classes
     with torch.no_grad():
@@ -88,15 +158,56 @@ def val(epoch, model, val_loader, criterion, num_classes, device):
             hist = utils.fast_hist(targets.cpu().numpy(), predicted.cpu().numpy(), num_classes)
             total_hist += hist
 
+            # calculate True Positive on the confusion matrix
+            TP = np.diag(total_hist)
+            # calculate the Accuracy
+            pixel_acc = np.sum(TP) / np.sum(total_hist)
+            # loss
+            loss = 1. - pixel_acc
+
+            # Run validation end callbacks
+            for callback in callbacks:
+                callback.on_validation_batch_end(batch_idx, loss)
+
     # Compute per-class IoU from the accumulated histogram
     ious = utils.per_class_iou(total_hist)
     mean_iou = np.nanmean(ious)  # Mean IoU for reporting
     print(f'Validation Mean IoU for Epoch {epoch + 1}: {mean_iou:.4f}')
+
+    # Run validation end callbacks
+    for callback in callbacks:
+        callback.on_validation_end(mean_iou)
+
     return mean_iou
 
-def val_GTA5(epoch, model, val_loader, criterion, num_classes, class_names, device):
+def val_GTA5(
+        epoch : int,
+        model : torch.nn.Module,
+        val_loader : DataLoader,
+        num_classes : int,
+        class_names : list[str],
+        callbacks : list[Callback] = [],
+        device : str = 'cpu'):
+    '''Validation function for GTA5 dataset, using the provided class names for reporting IoU per class.
+
+    Args:
+        epoch (int): Current epoch number
+        model (nn.Module): Model to evaluate
+        val_loader (DataLoader): Validation loader
+        num_classes (int): Number of classes in the dataset
+        class_names (list): List of class names for reporting
+        callbacks (list): List of callback functions to run during validation
+        device (str): Device to run the evaluation on, default is 'cpu'
+    
+    Returns:
+        float: Mean IoU for the validation set
+    '''
     model.eval()
     total_miou = 0
+
+    # Run validation begin callbacks
+    for callback in callbacks:
+        callback.on_validation_begin()
 
     # Initialize confusion matrix
     confusion_matrix = np.zeros((num_classes, num_classes), dtype=np.int64)
@@ -116,10 +227,24 @@ def val_GTA5(epoch, model, val_loader, criterion, num_classes, class_names, devi
             # Update confusion matrix using fast_hist
             confusion_matrix += utils.fast_hist(targets, predicted, num_classes)
 
+            # calculate True Positive on the confusion matrix
+            TP = np.diag(confusion_matrix)
+            # calculate the Accuracy
+            pixel_acc = np.sum(TP) / np.sum(confusion_matrix)
+            # loss
+            loss = 1. - pixel_acc
+            # Run validation end callbacks
+            for callback in callbacks:
+                callback.on_validation_batch_end(batch_idx, loss)
+
     # Calculate per class IoU from the confusion matrix
     IoUs = utils.per_class_iou(confusion_matrix)
     total_miou = np.nanmean(IoUs)  # Calculate mean IoU, ignoring NaNs
     print(f'Validation mIoU for Epoch {epoch + 1}: {total_miou:.4f}')
+    
+    # Run validation end callbacks
+    for callback in callbacks:
+        callback.on_validation_end(total_miou)
 
     for i, IoU in enumerate(IoUs):
         print(f'Class {class_names[i]} IoU: {IoU:.4f}')
