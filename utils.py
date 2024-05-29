@@ -43,8 +43,7 @@ class IntRangeTransformer:
 
     def __call__(self, sample):
         # Perform the transformation
-        sample = torch.clamp(sample, self.min_val, self.max_val)  # Clamp values to the specified range
-        sample = ((sample - sample.min()) / (sample.max() - sample.min())) * (self.max_val - self.min_val) + self.min_val
+        sample = torch.clamp(sample, self.min_val, self.max_val)  # Clamp values to the range
         return sample.long()  # Cast to torch.long
 
 # def latency(model):
