@@ -59,6 +59,13 @@ class GTA5(Dataset):
 
         self.images_dataset = self.__make_dataset__()
 
+        # self.images_dataset['label'].apply(lambda x : self.label_driver(x[0]))
+
+    def label_driver(self,label_path : str):
+
+        label = read_image(label_path,mode=ImageReadMode.RGB).long()
+
+        return self.__decode_label__(label,cityscape_color_map_df)
 
     def __getitem__(self, idx):
 
@@ -67,9 +74,7 @@ class GTA5(Dataset):
         #
         image = read_image(self.images_dataset.iloc[idx]['image']).float()
         #  Read label and transform it into rgb
-        label = read_image(self.images_dataset.iloc[idx]['label'][0],mode=ImageReadMode.RGB).long()
-
-        label = self.__decode_label__(label,cityscape_color_map_df)
+        label = read_image(self.images_dataset.iloc[idx]['label'][0]).long()
 
         if self.transform:
             image = self.transform(image)
