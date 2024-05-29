@@ -48,11 +48,13 @@ cityscape_color_map = {
 cityscape_color_map_df = pd.DataFrame(cityscape_color_map).T
 
 class GTA5(Dataset):
-    def __init__(self, images_path, labels_path, transformer, target_transofrmer):
+    def __init__(self, images_path, labels_path, transformer, target_transofrmer, in_getting_decoder=False):
         super(GTA5, self).__init__()
 
         self.transform = transformer
         self.target_transform = target_transofrmer
+
+        self.in_getting_decoder = in_getting_decoder
 
         self.images_filenames = glob.glob(os.path.join(images_path,'**.png'))
         self.labels_filenames = glob.glob(os.path.join(labels_path,'**.png'))
@@ -73,8 +75,11 @@ class GTA5(Dataset):
             idx = idx.tolist()
         #
         image = read_image(self.images_dataset.iloc[idx]['image']).float()
-        #  Read label and transform it into rgb
-        label = read_image(self.images_dataset.iloc[idx]['label'][0]).long()
+        
+        if self.in_getting_decoder:
+            label = self.label_driver(self.images_dataset.iloc[idx]['label'][0])
+        else:
+            label = read_image(self.images_dataset.iloc[idx]['label'][0]).long()
 
         if self.transform:
             image = self.transform(image)
