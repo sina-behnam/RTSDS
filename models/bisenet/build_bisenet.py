@@ -82,11 +82,12 @@ class FeatureFusionModule(torch.nn.Module):
 
 
 class BiSeNet(torch.nn.Module):
-    def __init__(self, num_classes, context_path):
+    def __init__(self, num_classes, context_path, with_interpolation=True):
         super().__init__()
+        # set with interpolation
+        self.with_interpolation = with_interpolation
         # build spatial path
         self.saptial_path = Spatial_path()
-
         # build context path
         self.context_path = build_contextpath(name=context_path)
 
@@ -158,11 +159,12 @@ class BiSeNet(torch.nn.Module):
             cx2_sup = torch.nn.functional.interpolate(cx2_sup, size=input.size()[-2:], mode='bilinear')
 
         # output of feature fusion module
-        result = self.feature_fusion_module(sx, cx)
+        result = self.feature_fusion_module(sx, cx) # torch.Size([4, 19, 90, 160])        
 
         # upsampling
-        result = torch.nn.functional.interpolate(result, scale_factor=8, mode='bilinear')
-        result = self.conv(result)
+        if self.with_interpolation:
+            result = torch.nn.functional.interpolate(result, scale_factor=8, mode='bilinear') # torch.Size([4, 19, 720, 1280])
+            result = self.conv(result)
 
         if self.training == True:
             return result, cx1_sup, cx2_sup
