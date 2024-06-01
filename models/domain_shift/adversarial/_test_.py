@@ -1,139 +1,211 @@
+
 import torch
-from torch.autograd import Function
-###### ------------------ Gradient Reversal Layer ------------------ ######
-class GradientReversalFunction(Function):
-    @staticmethod
-    def forward(ctx, x, alpha):
-        ctx.alpha = alpha
-        return x.view_as(x)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        return grad_output.neg() * ctx.alpha, None
-
-def grad_reverse(x, alpha):
-    return GradientReversalFunction.apply(x, alpha)
-
-class GradientReversalFunction(Function):
-    @staticmethod
-    def forward(ctx, x, alpha):
-        ctx.alpha = alpha
-        return x.view_as(x)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        return grad_output.neg() * ctx.alpha, None
-
-def grad_reverse(x, alpha):
-    return GradientReversalFunction.apply(x, alpha)
-
-###### ------------------ Adversarial Training ------------------ ######
-
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import datasets, transforms
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
-
-###### ------------------ Segmentation ------------------ ######
-
-# Define a simple segmentation network
-class SimpleSegNet(nn.Module):
-    def __init__(self, num_classes):
-        super(SimpleSegNet, self).__init__()
-        self.features = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-        )
-        self.classifier = nn.Conv2d(128, num_classes, kernel_size=1)
-
-    def forward(self, x):
-        x = self.features(x)
-        x = self.classifier(x)
-        return x
-
-#####------------------ Discriminator ------------------ ######
-
-# Define a simple discriminator network
-class Discriminator(nn.Module):
-    def __init__(self):
-        super(Discriminator, self).__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(128, 64, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, 1, kernel_size=3, stride=1, padding=1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        return self.net(x)
+from torchvision import datasets, transforms
+from tqdm import tqdm
+import numpy as np
 
 
-#####------------------ Adversarial Training ------------------ ######
+def train(iterations : int ,epoch : int, generator : torch.nn.Module, discriminator : torch.nn.Module,
+           generator_optimizer : torch.optim.Optimizer, discriminator_optimizer : torch.optim.Optimizer,
+            source_dataloader : DataLoader, target_dataloader : DataLoader,
+            generator_loss : torch.nn.Module, discriminator_loss : torch.nn.Module, 
+            discriminator_interpolator : torch.nn.Module, image_inter_size : tuple,
+            device : torch.device):
+    '''
+    Function to train the generator and discriminator for the adversarial training of the domain shift problem.
 
-# Adversarial training function
-def train_adversarial_with_grl(seg_net, disc_net, source_loader, target_loader, num_classes, num_epochs=10, alpha=1.0):
-    seg_optimizer = optim.Adam(seg_net.parameters(), lr=0.001)
-    disc_optimizer = optim.Adam(disc_net.parameters(), lr=0.001)
-    criterion = nn.CrossEntropyLoss()
-    bce_loss = nn.BCELoss()
+    Parameters:
+    -----------
+    iterations : int
+        Number of iterations to train the model
+    epoch : int
+        Current epoch number
+    generator : torch.nn.Module
+        Generator model
+    discriminator : torch.nn.Module
+        Discriminator model
+    generator_optimizer : torch.optim.Optimizer
+        Optimizer for the generator
+    discriminator_optimizer : torch.optim.Optimizer
+        Optimizer for the discriminator
+    source_dataloader : DataLoader
+        Dataloader for the source dataset
+    target_dataloader : DataLoader
+        Dataloader for the target dataset
+    generator_loss : torch.nn.Module
+        Loss function for the generator
+    discriminator_loss : torch.nn.Module
+        Loss function for the discriminator
+    discriminator_interpolator : torch.nn.Module
+        Interpolator for the discriminator
+    image_inter_size : tuple
+        Size of the image after interpolation
+    device : torch.device
+        Device to run the model
+    
+    Returns:
+    --------
+    None
+    '''
 
-    for epoch in range(num_epochs):
-        seg_net.train()
-        disc_net.train()
+    try:
+        from IPython import get_ipython
+        if get_ipython():
+            from tqdm.notebook import tqdm
+    except:
+        from tqdm import tqdm
 
-        for (source_data, source_label), (target_data, _) in zip(source_loader, target_loader):
-            source_data, source_label = source_data.cuda(), source_label.cuda()
-            target_data = target_data.cuda()
 
-            # Train segmentation network on source data
-            seg_optimizer.zero_grad()
-            source_pred = seg_net(source_data)
-            seg_loss = criterion(source_pred, source_label)
-            seg_loss.backward()
-            seg_optimizer.step()
+    generator.train()
+    discriminator.train()
 
-            # Train discriminator network
-            disc_optimizer.zero_grad()
+    running_loss_gen = 0.0
+    running_loss_disc = 0.0
 
-            source_features = seg_net.features(source_data).detach()
-            target_features = seg_net.features(target_data).detach()
+    for i in tqdm(range(iterations),total=iterations,desc=f'Epoch {epoch}'):
 
-            source_disc_pred = disc_net(source_features)
-            target_disc_pred = disc_net(target_features)
+        # defining source and target data
+        source_image, source_label = next(iter(source_dataloader))
+        target_image, _ = next(iter(target_dataloader))
 
-            source_disc_label = torch.ones_like(source_disc_pred)
-            target_disc_label = torch.zeros_like(target_disc_pred)
+        source_image, source_label = source_image.to(device), source_label.to(device)
+        source_label = source_label.squeeze(1) # removing the channel dimension
+        target_image = target_image.to(device)
 
-            disc_loss = bce_loss(source_disc_pred, source_disc_label) + bce_loss(target_disc_pred, target_disc_label)
-            disc_loss.backward()
-            disc_optimizer.step()
+        # * Defining the labels for discriminator as Target_DIS = 0 and the Source_DIS = 1
+        batch_size_source = source_image.size(0)
+        batch_size_target = target_image.size(0)
+        source_mask_label = torch.ones(batch_size_source, 1, *image_inter_size).to(device)
+        target_mask_label = torch.zeros(batch_size_target, 1, *image_inter_size).to(device)
 
-            # Train segmentation network with GRL to fool discriminator
-            seg_optimizer.zero_grad()
-            target_features = grad_reverse(seg_net.features(target_data), alpha)
-            target_disc_pred = disc_net(target_features)
-            adv_loss = bce_loss(target_disc_pred, target_disc_label)
-            adv_loss.backward()
-            seg_optimizer.step()
+        # ! Training the Discriminator
+        discriminator_optimizer.zero_grad()
 
-            print(f'Epoch [{epoch+1}/{num_epochs}], Segmentation Loss: {seg_loss.item():.4f}, '
-                  f'Discriminator Loss: {disc_loss.item():.4f}, Adversarial Loss: {adv_loss.item():.4f}')
+        # Forward pass Generator
+        # * The source features in here are same as the segmentation output as the low-dimenssion segmentation has been used as input of discriminator 
+        source_gen_output = generator(source_image)
+        target_gen_output = generator(target_image)
 
-# Example usage
-if __name__ == '__main__':
-    num_classes = 21  # Number of segmentation classes
-    batch_size = 8
-    num_epochs = 10
+        # segmentation loss for generator
+        if isinstance(source_gen_output,tuple):
+            gen_source_loss = generator_loss(source_gen_output[0], source_label)
+            gen_source_loss += generator_loss(source_gen_output[1], source_label)
+            gen_source_loss += generator_loss(source_gen_output[2], source_label)
 
-    # Data loaders (replace with actual data loaders)
-    source_loader = DataLoader(datasets.FakeData(transform=transforms.ToTensor()), batch_size=batch_size, shuffle=True)
-    target_loader = DataLoader(datasets.FakeData(transform=transforms.ToTensor()), batch_size=batch_size, shuffle=True)
+            source_features, _ , _ = source_gen_output
 
-    seg_net = SimpleSegNet(num_classes).cuda()
-    disc_net = Discriminator().cuda()
+        else:
+            gen_source_loss = generator_loss(source_gen_output, source_label)
+        
+        
+        if isinstance(target_gen_output,tuple):
+            target_feature, _ , _ = target_gen_output
+        
+        # Forward pass Discriminator
+        # * Here we feed the Discriminator with the output of the generator (features) or in this case the (low-dimenssion segmentation)
+        source_discriminator_output = discriminator_interpolator(discriminator(F.softmax(source_features.detach())))
+        target_discriminator_output = discriminator_interpolator(discriminator(F.softmax(target_feature.detach())))
+        
+        # loss on discriminator
+        loss_disc_source = discriminator_loss(source_discriminator_output, source_mask_label)
+        loss_disc_target = discriminator_loss(target_discriminator_output, target_mask_label)
+        loss_disc = (loss_disc_source + loss_disc_target) / 2
+        loss_disc.backward()
+        discriminator_optimizer.step()
+        # for logging
+        running_loss_disc += loss_disc.item()
+        
+        # ! Train the Generator
+        generator_optimizer.zero_grad()
+        
+        # * Adversarial loss for generator
+        disc_target_preds_gen = discriminator_interpolator(discriminator(F.softmax(target_feature)))
+        #
+        # * Adversarial loss for generator by using the discriminator output of the target features \
+        # * And the source mask label as the target label to fool the discriminator \
+        # * To predict the target features as the source features.
+        #
+        loss_adv_gen = discriminator_loss(disc_target_preds_gen, source_mask_label)
+        
+        # Total generator loss
+        loss_gen = gen_source_loss + loss_adv_gen
+        loss_gen.backward()
+        generator_optimizer.step()
+        
+        running_loss_gen += loss_gen.item()
 
-    train_adversarial_with_grl(seg_net, disc_net, source_loader, target_loader, num_classes, num_epochs)
+        if i % 100 == 0 and i != 0:
+            print(f'Iteration {i}', f"Generator Loss: {running_loss_gen/iterations:.4f}, "
+              f"Discriminator Loss: {running_loss_disc/iterations:.4f}")
+
+
+
+# past_archived
+# def train(epoch : int,lambda_=0.1):
+
+#     try:
+#         from IPython import get_ipython
+#         if get_ipython():
+#             from tqdm.notebook import tqdm
+#     except:
+#         from tqdm import tqdm
+
+
+#     generator.train()
+#     discriminator.train()
+#     for i, (source_data, target_data) in tqdm(enumerate(zip(train_dataloaderGTA5, train_dataloader)), total=len(train_dataloaderGTA5) , desc=f'Epoch {epoch}'):
+#         source_image, source_label = source_data
+#         target_image, _ = target_data
+
+#         source_image, source_label = source_image.to(device), source_label.to(device)
+#         target_image = target_image.to(device)
+
+#         # ! Training the generator
+#         generator_optimizer.zero_grad()
+#         discriminator_optimizer.zero_grad()
+
+#         # Forward pass Generator
+#         # * The source features in here are same as the segmentation output as the low-dimenssion segmentation has been used as input of discriminator 
+#         source_features = generator(source_image)
+#         target_feature = generator(target_image)
+
+#         # loss on generator of source domain 
+#         # * We only perform the loss on the source domain as the target domain is not labeled
+#         gen_source_loss = generator_loss_calculator(generator_loss, source_features, source_label)
+
+#         if isinstance(source_features,tuple):
+#             source_features, _ , _ = source_features
+#         if isinstance(target_feature,tuple):
+#             target_feature, _ , _ = target_feature
+        
+#         # ! Forward pass Discriminator
+#         # * Here we feed the Discriminator with the output of the generator (features) or in this case the (low-dimenssion segmentation)
+#         source_discriminator_output = source_interp(discriminator(F.softmax(source_features)))
+#         target_discriminator_output = target_interp(discriminator(F.softmax(target_feature)))
+#         # * defining the Target label as 0 and the Source label as 1
+#         source_label = torch.ones_like(source_discriminator_output)
+#         target_label = torch.zeros_like(target_discriminator_output)
+
+#         # loss on discriminator
+#         disc_loss = discriminator_loss(source_discriminator_output, source_label) + discriminator_loss(target_discriminator_output, target_label)
+        
+#         # ! Adversarial Training
+#         target_feature, _, _ = generator(target_image)
+#         target_discriminator_output = target_interp(discriminator(F.softmax(target_feature)))
+#         # * To fool the discriminator
+#         adver_loss = discriminator_loss(target_discriminator_output, source_label)
+#         # total loss
+#         total_loss = gen_source_loss + lambda_ * ( disc_loss + adver_loss )
+#         total_loss.backward()
+#         # Update the weights
+#         generator_optimizer.step()
+#         discriminator_optimizer.step()
+
+#         if i % 100 == 0 and i != 0:
+#             print(f'Iteration {i}, Generator Loss: {gen_source_loss.item()}, Discriminator Loss: {disc_loss.item()} , Adversarial Loss: {adver_loss.item()} , Total Loss: {total_loss.item()}')
+
+        
