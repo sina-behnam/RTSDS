@@ -96,8 +96,8 @@ class DANN(nn.Module):
 def train(iterations : int ,epoch : int, generator : torch.nn.Module, discriminator : torch.nn.Module,
            generator_optimizer : torch.optim.Optimizer, discriminator_optimizer : torch.optim.Optimizer,
             source_dataloader : DataLoader, target_dataloader : DataLoader,
-            generator_loss : torch.nn.Module, discriminator_loss : torch.nn.Module, 
-            discriminator_interpolator : torch.nn.Module, image_inter_size : tuple,
+            generator_loss : torch.nn.Module, discriminator_loss : torch.nn.Module, lambda_ : float,
+            discriminator_interpolator : torch.nn.Module, image_inter_size : tuple, 
             device : str = 'cpu', when_print : int = 10):
     '''
     Function to train the generator and discriminator for the adversarial training of the domain shift problem.
@@ -124,6 +124,8 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
         Loss function for the generator
     discriminator_loss : torch.nn.Module
         Loss function for the discriminator
+    lambda_ : float
+        Lambda value for the total loss (in which is equal = generator_loss + `lambda_` * discriminator_loss)
     discriminator_interpolator : torch.nn.Module
         Interpolator for the discriminator
     image_inter_size : tuple
@@ -218,7 +220,7 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
         loss_adv_gen = discriminator_loss(disc_target_preds_gen, torch.ones(batch_size_target, 1, *image_inter_size).to(device))
         
         # Total generator loss
-        loss_gen = gen_source_loss + loss_adv_gen
+        loss_gen = gen_source_loss + lambda_ * loss_adv_gen
         loss_gen.backward()
         generator_optimizer.step()
         
