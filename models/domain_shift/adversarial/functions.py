@@ -98,7 +98,7 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
             source_dataloader : DataLoader, target_dataloader : DataLoader,
             generator_loss : torch.nn.Module, discriminator_loss : torch.nn.Module, 
             discriminator_interpolator : torch.nn.Module, image_inter_size : tuple,
-            device : str = 'cpu'):
+            device : str = 'cpu', when_print : int = 10):
     '''
     Function to train the generator and discriminator for the adversarial training of the domain shift problem.
 
@@ -130,6 +130,8 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
         Size of the image after interpolation
     device : torch.device
         Device to run the model
+    when_print : int
+        On which iteration to print the loss values (default is 10). it should be less than the iterations
     
     Returns:
     --------
@@ -213,7 +215,7 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
         # * And the source mask label as the target label to fool the discriminator \
         # * To predict the target features as the source features.
         #
-        loss_adv_gen = discriminator_loss(disc_target_preds_gen, source_mask_label)
+        loss_adv_gen = discriminator_loss(disc_target_preds_gen, torch.ones(batch_size_target, 1, *image_inter_size).to(device))
         
         # Total generator loss
         loss_gen = gen_source_loss + loss_adv_gen
@@ -222,6 +224,6 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
         
         running_loss_gen += loss_gen.item()
 
-        if i % 100 == 0 and i != 0:
+        if i % when_print == 0 and i != 0:
             print(f'Iteration {i}', f"Generator Loss: {running_loss_gen/iterations:.4f}, "
               f"Discriminator Loss: {running_loss_disc/iterations:.4f}")
