@@ -54,7 +54,6 @@ class DomainDiscriminator(nn.Module):
         self.classifier = nn.Conv2d(512, 1, kernel_size=4, stride=2, padding=1)
         self.leaky_relu = nn.LeakyReLU(0.2)
         # defining the upsampler to interpolate the output to the same size as the input
-        
 
         # interpolate the output to the same size as the input
         
@@ -69,6 +68,15 @@ class DomainDiscriminator(nn.Module):
             x = GradientReversalFunction.apply(x, self.lambda_)
         
         return x
+
+    def calculate_output_size(self, input_size):
+        x = torch.randn(input_size)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        x = self.classifier(x)
+        return x.size()
     
 
 class DANN(nn.Module):
@@ -97,7 +105,6 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
            generator_optimizer : torch.optim.Optimizer, discriminator_optimizer : torch.optim.Optimizer,
             source_dataloader : DataLoader, target_dataloader : DataLoader,
             generator_loss : torch.nn.Module, discriminator_loss : torch.nn.Module, lambda_ : float,
-            discriminator_interpolator : torch.nn.Module, image_inter_size : tuple, 
             device : str = 'cpu', when_print : int = 10):
     '''
     Function to train the generator and discriminator for the adversarial training of the domain shift problem.
@@ -126,10 +133,6 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
         Loss function for the discriminator
     lambda_ : float
         Lambda value for the total loss (in which is equal = generator_loss + `lambda_` * discriminator_loss)
-    discriminator_interpolator : torch.nn.Module
-        Interpolator for the discriminator
-    image_inter_size : tuple
-        Size of the image after interpolation
     device : torch.device
         Device to run the model
     when_print : int
@@ -164,11 +167,10 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
         source_label = source_label.squeeze(1) # removing the channel dimension
         target_image = target_image.to(device)
 
-        # * Defining the labels for discriminator as Target_DIS = 0 and the Source_DIS = 1
-        batch_size_source = source_image.size(0)
-        batch_size_target = target_image.size(0)
-        source_mask_label = torch.ones(batch_size_source, 1, *image_inter_size).to(device)
-        target_mask_label = torch.zeros(batch_size_target, 1, *image_inter_size).to(device)
+        
+        # batch_size_source = source_image.size(0)
+        # source_mask_label = torch.ones(batch_size_source, 1, *image_inter_size).to(device)
+        # target_mask_label = torch.zeros(batch_size_target, 1, *image_inter_size).to(device)
 
         # ! Training the Discriminator
         discriminator_optimizer.zero_grad()
@@ -195,8 +197,11 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
         
         # Forward pass Discriminator
         # * Here we feed the Discriminator with the output of the generator (features) or in this case the (low-dimenssion segmentation)
-        source_discriminator_output = discriminator_interpolator(discriminator(F.softmax(source_features.detach())))
-        target_discriminator_output = discriminator_interpolator(discriminator(F.softmax(target_feature.detach())))
+        source_discriminator_output = discriminator(F.softmax(source_features.detach()))
+        target_discriminator_output = discriminator(F.softmax(target_feature.detach()))
+        # * Defining the labels for discriminator as Target_DIS = 0 and the Source_DIS = 1
+        source_mask_label = torch.ones(source_discriminator_output.size()).to(device)
+        target_mask_label = torch.zeros(target_discriminator_output.size()).to(device)
         
         # loss on discriminator
         loss_disc_source = discriminator_loss(source_discriminator_output, source_mask_label)
@@ -211,13 +216,15 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
         generator_optimizer.zero_grad()
         
         # * Adversarial loss for generator
-        disc_target_preds_gen = discriminator_interpolator(discriminator(F.softmax(target_feature)))
+        disc_target_preds_gen = discriminator(F.softmax(target_feature))
+        # since the target mask might have different batch size, we need to get the batch size of the target image
+        batch_size_target = target_image.size(0)
         #
         # * Adversarial loss for generator by using the discriminator output of the target features \
         # * And the source mask label as the target label to fool the discriminator \
         # * To predict the target features as the source features.
         #
-        loss_adv_gen = discriminator_loss(disc_target_preds_gen, torch.ones(batch_size_target, 1, *image_inter_size).to(device))
+        loss_adv_gen = discriminator_loss(disc_target_preds_gen, torch.ones(batch_size_target,*target_mask_label.size()[1:]).to(device))
         
         # Total generator loss
         loss_gen = gen_source_loss + lambda_ * loss_adv_gen
