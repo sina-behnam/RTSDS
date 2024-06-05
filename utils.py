@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-
+import pandas as pd
 
 def poly_lr_scheduler(optimizer, init_lr, iter, lr_decay_iter=1,
                       max_iter=300, power=0.9):
@@ -45,6 +45,25 @@ class IntRangeTransformer:
         # Perform the transformation
         sample = torch.clamp(sample, self.min_val, self.max_val)  # Clamp values to the range
         return sample.long()  # Cast to torch.long
+    
+def tabular_print(log_dict):
+    df = pd.DataFrame({**log_dict}, index=[0])
+
+    # check if the PrettyTable module is available
+    try:
+        from prettytable import PrettyTable
+    except ImportError:
+        # log a warning once if the module is not available
+        if not hasattr(tabular_print, 'warned'):
+            print('PrettyTable is not available. Falling back to printing the dataframe.', file=sys.stderr)
+            tabular_print.warned = True
+        print(df)
+        return
+    
+    x = PrettyTable()
+    for col in df.columns:
+        x.add_column(col, df[col].values)
+    print(x)
 
 # def latency(model):
 #     # Latency and FPS Calculation
