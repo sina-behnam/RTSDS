@@ -4,6 +4,7 @@ import torch
 import utils
 from callbacks import Callback
 from torch.utils.data import DataLoader
+import pandas as pd
 
 
 def train(
@@ -246,7 +247,9 @@ def val_GTA5(
     for callback in callbacks:
         callback.on_validation_end(total_miou)
 
+    class_result_df = pd.DataFrame({'Class': class_names, 'IoU (%)': [f'{iou:.2f}' for iou in IoUs]})
+    
     for i, IoU in enumerate(IoUs):
         print(f'Class {class_names[i]} IoU: {IoU:.4f}')
 
-    return total_miou
+    return total_miou, class_result_df
