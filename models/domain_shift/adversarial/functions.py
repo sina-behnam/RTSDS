@@ -6,6 +6,7 @@ sys.path.append('../../../')
 from models.bisenet.build_bisenet import BiSeNet
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+from callbacks import Callback
 
 warnings.filterwarnings(action='ignore')
     
@@ -105,7 +106,7 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
            generator_optimizer : torch.optim.Optimizer, discriminator_optimizer : torch.optim.Optimizer,
             source_dataloader : DataLoader, target_dataloader : DataLoader,
             generator_loss : torch.nn.Module, discriminator_loss : torch.nn.Module, lambda_ : float,
-            device : str = 'cpu', when_print : int = 10):
+            device : str = 'cpu', when_print : int = 10, callbacks : list[Callback]  = []):
     '''
     Function to train the generator and discriminator for the adversarial training of the domain shift problem.
 
@@ -137,7 +138,8 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
         Device to run the model
     when_print : int
         On which iteration to print the loss values (default is 10). it should be less than the iterations
-    
+    callbacks : list
+        List of callback functions to run during training
     Returns:
     --------
     None
@@ -150,6 +152,10 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
     except:
         from tqdm import tqdm
 
+    # setup callbacks
+    for callback in callbacks:
+        callback.on_train_begin()
+    
 
     generator.train()
     discriminator.train()
@@ -232,6 +238,17 @@ def train(iterations : int ,epoch : int, generator : torch.nn.Module, discrimina
         generator_optimizer.step()
         
         running_loss_gen += loss_gen.item()
+
+        # Run batch end callbacks
+        for callback in callbacks:
+            callback.on_batch_end(i, {
+                'total_loss': loss_gen.item(),
+                'total_discriminator_loss': loss_disc.item(),
+                'source_dis_loss' : loss_disc_source.item(),
+                'target_dis_loss' : loss_disc_target.item(),
+                'source_gen_loss': gen_source_loss.item(),
+                'adversarial_loss': loss_adv_gen.item(),
+            })
 
         if i % when_print == 0 and i != 0:
             print(f'Iteration {i}', f"Generator Loss: {running_loss_gen/iterations:.4f}, "
