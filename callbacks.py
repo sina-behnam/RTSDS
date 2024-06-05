@@ -45,13 +45,54 @@ class TensorBoardCallback(Callback):
 
 import wandb
 
-class WandBCallback(Callback):
-    def __init__(self, project_name, run_name=None):
-        wandb.init(project=project_name, name=run_name)
+from callbacks import Callback
 
-    def on_epoch_end(self, epoch, logs=None):
-        wandb.log({**logs, 'epoch': epoch})
+class WandBCallback(Callback):
+    def __init__(self, project_name : str, run_name : str =None, config : dict = None):
+        wandb.init(project=project_name, name=run_name, config=config)
     
     def on_train_end(self, logs=None):
         wandb.finish()
+
+    def on_batch_end(self, batch, logs=None):
+         wandb.log({**logs})
+
+    def on_validation_end(self, logs=None,data=None):
+        wandb.log(logs)
+        wandb.log({"per class mIoU": wandb.Table(data=data)})
+
+
+        
+    
+class PrettyPrintCallback(Callback):
+
+    def __init__(self) -> None:
+        super().__init__()
+        from prettytable import PrettyTable
+        self.table = PrettyTable()
+        self.table.field_names = ['Parameter', 'Value']
+
+    @property
+    def set_table_headers(self, headers):
+        self.table.field_names = headers
+
+    @property
+    def get_table(self):
+        return self.table
+
+    
+    def dict_log_to_table(table,logs):
+        for key, value in logs.items():
+            table.add_row([key, value])
+
+    def on_validation_end(self, logs=None, logger = dict_log_to_table):
+        logger(self.table, logs)
+        print(self.table)
+    
+    def on_epoch_end(self, epoch, logs=None, logger = dict_log_to_table):
+        logger(self.table, logs)
+        print('Epoch:', epoch)
+        print(self.table)
+        
+    
 
