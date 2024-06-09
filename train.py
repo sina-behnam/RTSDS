@@ -263,11 +263,13 @@ def adjust_learning_rate(optimizer, i_iter, init_lr, iterations, power=0.9):
     if len(optimizer.param_groups) > 1:
         optimizer.param_groups[1]['lr'] = lr * 10
 
+    return lr
+
 def adversarial_train(iterations : int ,epoch : int, generator : torch.nn.Module, discriminator : torch.nn.Module,
            generator_optimizer : torch.optim.Optimizer, discriminator_optimizer : torch.optim.Optimizer,
             source_dataloader : DataLoader, target_dataloader : DataLoader,
             generator_loss : torch.nn.Module, discriminator_loss : torch.nn.Module, lambda_ : float,
-            gen_init_lr : float, power : float, dis_init_lr : float,
+            gen_init_lr : float, power : float, dis_init_lr : float, lr_decay_iter : float, max_iter : int,
             device : str = 'cpu', when_print : int = 10, callbacks : list[Callback]  = []):
     '''
     Function to train the generator and discriminator for the adversarial training of the domain shift problem.
@@ -296,6 +298,16 @@ def adversarial_train(iterations : int ,epoch : int, generator : torch.nn.Module
         Loss function for the discriminator
     lambda_ : float
         Lambda value for the total loss (in which is equal = generator_loss + `lambda_` * discriminator_loss)
+    gen_init_lr : float
+        Initial learning rate for the generator
+    power : float
+        Power factor for polynomial learning rate decay
+    dis_init_lr : float
+        Initial learning rate for the discriminator
+    lr_decay_iter : float
+        Learning rate decay interval
+    max_iter : int
+        Maximum number of iterations (Epochs_number * Iterations)
     device : torch.device
         Device to run the model
     when_print : int
@@ -330,11 +342,17 @@ def adversarial_train(iterations : int ,epoch : int, generator : torch.nn.Module
     generator_optimizer.zero_grad()
     discriminator_optimizer.zero_grad()
 
-    adjust_learning_rate(generator_optimizer, epoch, gen_init_lr, iterations, power)
-    adjust_learning_rate(discriminator_optimizer, epoch, dis_init_lr, iterations, power)
+    # adjust_learning_rate(generator_optimizer, epoch, gen_init_lr, iterations, power)
+    dis_lr = adjust_learning_rate(discriminator_optimizer, epoch, dis_init_lr, iterations, power)
 
     for i in tqdm(range(iterations),total=iterations,desc=f'Epoch {epoch}'):
 
+        ## lr_scheduler for the generator
+        current_iter = epoch * iterations + i  # Calculate global iteration count across all epochs
+        # Update learning rate
+        if current_iter % lr_decay_iter == 0 and current_iter <= max_iter:
+            gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr, current_iter, lr_decay_iter, max_iter, power)
+        
         # defining source and target data
         source_image, source_label = next(iter(source_dataloader))
         target_image, _ = next(iter(target_dataloader))
@@ -418,7 +436,8 @@ def adversarial_train(iterations : int ,epoch : int, generator : torch.nn.Module
                 'loss_gen_source': loss_gen_source.item(),
                 'loss_adversarial': loss_adversarial.item(),
                 'loss_disc_source': loss_disc_source.item(),
-                'loss_disc_target': loss_disc_target.item()
+                'loss_disc_target': loss_disc_target.item(),
+                'lr_gen': gen_lr,
             })
         
         if when_print != -1 and (i % when_print == 0 and i != 0):
@@ -427,11 +446,17 @@ def adversarial_train(iterations : int ,epoch : int, generator : torch.nn.Module
                 'loss_gen_source': running_generator_source_loss/iterations,
                 'loss_adversarial': running_adversarial_loss/iterations,
                 'loss_disc_source': running_discriminator_source_loss/iterations,
-                'loss_disc_target': running_discriminator_target_loss/iterations
+                'loss_disc_target': running_discriminator_target_loss/iterations,
+                'lr_gen': gen_lr,
             })
 
-
-    generator_optimizer.step()
-    discriminator_optimizer.step()
+        # update the weights
+        generator_optimizer.step()
+        discriminator_optimizer.step()
+    
+    for callback in callbacks:
+        callback.on_epoch_end(epoch, {
+            'dis_lr': dis_lr,
+        })
 
     
