@@ -254,16 +254,16 @@ def val_GTA5(
 
     return total_miou, class_result_df
 
-def lr_poly(base_lr, iter, max_iter, power):
-    return base_lr * ((1 - float(iter) / max_iter) ** (power))
+# def lr_poly(base_lr, iter, max_iter, power):
+#     return base_lr * ((1 - float(iter) / max_iter) ** (power))
 
-def adjust_learning_rate(optimizer, i_iter, init_lr, iterations, power=0.9):
-    lr = lr_poly(init_lr, i_iter, iterations, power)
-    optimizer.param_groups[0]['lr'] = lr
-    if len(optimizer.param_groups) > 1:
-        optimizer.param_groups[1]['lr'] = lr * 10
+# def adjust_learning_rate(optimizer, i_iter, init_lr, iterations, power=0.9):
+#     lr = lr_poly(init_lr, i_iter, iterations, power)
+#     optimizer.param_groups[0]['lr'] = lr
+#     if len(optimizer.param_groups) > 1:
+#         optimizer.param_groups[1]['lr'] = lr * 10
 
-    return lr
+#     return lr
 
 def adversarial_train(iterations : int ,epoch : int, generator : torch.nn.Module, discriminator : torch.nn.Module,
            generator_optimizer : torch.optim.Optimizer, discriminator_optimizer : torch.optim.Optimizer,
@@ -343,8 +343,8 @@ def adversarial_train(iterations : int ,epoch : int, generator : torch.nn.Module
     discriminator_optimizer.zero_grad()
 
     # adjust_learning_rate(generator_optimizer, epoch, gen_init_lr, iterations, power)
-    dis_lr = adjust_learning_rate(discriminator_optimizer, epoch, dis_init_lr, iterations, power)
-
+    # dis_lr = adjust_learning_rate(discriminator_optimizer, epoch, dis_init_lr, iterations, power)
+    
     for i in tqdm(range(iterations),total=iterations,desc=f'Epoch {epoch}'):
 
         ## lr_scheduler for the generator
@@ -352,7 +352,8 @@ def adversarial_train(iterations : int ,epoch : int, generator : torch.nn.Module
         # Update learning rate
         if current_iter % lr_decay_iter == 0 and current_iter <= max_iter:
             gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr, current_iter, lr_decay_iter, max_iter, power)
-        
+            
+    
         # defining source and target data
         source_image, source_label = next(iter(source_dataloader))
         target_image, _ = next(iter(target_dataloader))
@@ -456,7 +457,7 @@ def adversarial_train(iterations : int ,epoch : int, generator : torch.nn.Module
     
     for callback in callbacks:
         callback.on_epoch_end(epoch, {
-            'dis_lr': dis_lr,
+            'dis_lr': dis_init_lr,
         })
 
     
