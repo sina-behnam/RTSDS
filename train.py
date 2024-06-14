@@ -331,9 +331,11 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
                 loss_gen_source = generator_loss(source_gen_output, source_label)
                 source_features = source_gen_output
 
-            running_generator_source_loss += loss_gen_source.item()
+            # normalize the loss
+            loss_gen_source = loss_gen_source / iterations
             # backward the generator loss        
             loss_gen_source.backward()
+            running_generator_source_loss += loss_gen_source.item()
 
             ## * Train with the target data
 
@@ -350,9 +352,11 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
             source_mask = torch.ones(predicted_target_domain.size()).to(device)
             loss_adversarial = lambda_ * discriminator_loss(predicted_target_domain, source_mask)
 
-            running_adversarial_loss += loss_adversarial.item()
+            # normalize the loss
+            loss_adversarial = loss_adversarial / iterations
 
             loss_adversarial.backward()
+            running_adversarial_loss += loss_adversarial.item()
 
             # ! //////////////////////// -------------  Training the Discriminator  ------------- //////////////////////// !
             ## * The Discriminator weight now should be updated during the discriminator training !
@@ -367,18 +371,23 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
             source_mask = torch.ones(predicted_source_domain.size()).to(device)
             loss_disc_source = discriminator_loss(predicted_source_domain, source_mask)
 
-            running_discriminator_source_loss += loss_disc_source.item()
+            # normalize the loss
+            loss_disc_source = loss_disc_source / iterations            
 
             loss_disc_source.backward()
+            running_discriminator_source_loss += loss_disc_source.item()
 
             ## * Train with the target data
             predicted_target_domain = discriminator(F.softmax(target_feature,dim=1))
             target_mask = torch.zeros(predicted_target_domain.size()).to(device)
             loss_disc_target = discriminator_loss(predicted_target_domain, target_mask)
 
-            running_discriminator_target_loss += loss_disc_target.item()
+            # normalize the loss
+            loss_disc_target = loss_disc_target / iterations            
 
             loss_disc_target.backward()
+
+            running_discriminator_target_loss += loss_disc_target.item()
 
             # ! //////////////////////// -------------  Finalizations  ------------- //////////////////////// !
             generator_predictred = source_features.argmax(dim=1)    
@@ -395,18 +404,20 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
                     'loss_disc_target': loss_disc_target.item(),
                 })
 
-            if (when_print != -1 and when_print != 0) and (i % when_print == 0 and i != 0):
-                print(f'Iteration {i}')
-                utils.tabular_print({
-                    'loss_gen_source': running_generator_source_loss/iterations,
-                    'loss_adversarial': running_adversarial_loss/iterations,
-                    'loss_disc_source': running_discriminator_source_loss/iterations,
-                    'loss_disc_target': running_discriminator_target_loss/iterations,
-                })
-
+        
+                
         # update the weights
         generator_optimizer.step()
-        discriminator_optimizer.step()  
+        discriminator_optimizer.step()
+
+        print(f'Epoch Results {epoch}')
+        utils.tabular_print({
+            'loss_gen_source': running_generator_source_loss/iterations,
+            'loss_adversarial': running_adversarial_loss/iterations,
+            'loss_disc_source': running_discriminator_source_loss/iterations,
+            'loss_disc_target': running_discriminator_target_loss/iterations,
+            'Genrator Accuracy': 100. * generator_correct / generator_total,
+        })  
 
         for callback in callbacks:
             callback.on_epoch_end(epoch, {
