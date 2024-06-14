@@ -259,7 +259,7 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
            generator_optimizer : torch.optim.Optimizer, discriminator_optimizer : torch.optim.Optimizer,
             source_dataloader : DataLoader, target_dataloader : DataLoader,
             generator_loss : torch.nn.Module, discriminator_loss : torch.nn.Module, lambda_ : float,
-            gen_init_lr : float, power : float, dis_init_lr : float, lr_decay_iter : float, max_iter : int,
+            gen_init_lr : float, gen_power : float, dis_power : float, dis_init_lr : float, lr_decay_iter : float, max_iter : int,
             num_classes : int, class_names : list[str], val_loader : DataLoader,do_validation : int = 1,
             device : str = 'cpu', when_print : int = 10, callbacks : list[Callback]  = []):
     
@@ -292,8 +292,8 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
         generator_optimizer.zero_grad()
         discriminator_optimizer.zero_grad()
 
-        dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_init_lr , epoch, lr_decay_iter, epochs, power)
-        gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr , epoch, lr_decay_iter, epochs, power)
+        dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_init_lr , epoch, lr_decay_iter, epochs, dis_power)
+        gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr , epoch, lr_decay_iter, epochs, gen_power)
 
         for i in tqdm(range(iterations),total=iterations,desc=f'Epoch {epoch}'):
 
