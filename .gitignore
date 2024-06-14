@@ -2,5 +2,7 @@
 /test
 /data
 /related-work
-
+related-work/** 
+/related-work/*
+/**/wandb
 /*.zip

@@ -254,210 +254,169 @@ def val_GTA5(
 
     return total_miou, class_result_df
 
-# def lr_poly(base_lr, iter, max_iter, power):
-#     return base_lr * ((1 - float(iter) / max_iter) ** (power))
 
-# def adjust_learning_rate(optimizer, i_iter, init_lr, iterations, power=0.9):
-#     lr = lr_poly(init_lr, i_iter, iterations, power)
-#     optimizer.param_groups[0]['lr'] = lr
-#     if len(optimizer.param_groups) > 1:
-#         optimizer.param_groups[1]['lr'] = lr * 10
-
-#     return lr
-
-def adversarial_train(iterations : int ,epoch : int, generator : torch.nn.Module, discriminator : torch.nn.Module,
+def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Module, discriminator : torch.nn.Module,
            generator_optimizer : torch.optim.Optimizer, discriminator_optimizer : torch.optim.Optimizer,
             source_dataloader : DataLoader, target_dataloader : DataLoader,
             generator_loss : torch.nn.Module, discriminator_loss : torch.nn.Module, lambda_ : float,
             gen_init_lr : float, power : float, dis_init_lr : float, lr_decay_iter : float, max_iter : int,
+            num_classes : int, class_names : list[str], val_loader : DataLoader,do_validation : int = 1,
             device : str = 'cpu', when_print : int = 10, callbacks : list[Callback]  = []):
-    '''
-    Function to train the generator and discriminator for the adversarial training of the domain shift problem.
-
-    Parameters:
-    -----------
-    iterations : int
-        Number of iterations to train the model
-    epoch : int
-        Current epoch number
-    generator : torch.nn.Module
-        Generator model
-    discriminator : torch.nn.Module
-        Discriminator model
-    generator_optimizer : torch.optim.Optimizer
-        Optimizer for the generator
-    discriminator_optimizer : torch.optim.Optimizer
-        Optimizer for the discriminator
-    source_dataloader : DataLoader
-        Dataloader for the source dataset
-    target_dataloader : DataLoader
-        Dataloader for the target dataset
-    generator_loss : torch.nn.Module
-        Loss function for the generator
-    discriminator_loss : torch.nn.Module
-        Loss function for the discriminator
-    lambda_ : float
-        Lambda value for the total loss (in which is equal = generator_loss + `lambda_` * discriminator_loss)
-    gen_init_lr : float
-        Initial learning rate for the generator
-    power : float
-        Power factor for polynomial learning rate decay
-    dis_init_lr : float
-        Initial learning rate for the discriminator
-    lr_decay_iter : float
-        Learning rate decay interval
-    max_iter : int
-        Maximum number of iterations (Epochs_number * Iterations)
-    device : torch.device
-        Device to run the model
-    when_print : int
-        On which iteration to print the loss values (default is 10). it should be less than the iterations
-    callbacks : list
-        List of callback functions to run during training
-    Returns:
-    --------
-    None
-    '''
-
-    try:
-        from IPython import get_ipython
-        if get_ipython():
-            from tqdm.notebook import tqdm
-    except:
-        from tqdm import tqdm
-
-    # setup callbacks
-    for callback in callbacks:
-        callback.on_train_begin()
-
-
-    running_generator_source_loss = 0.0
-    running_adversarial_loss = 0.0
-    running_discriminator_source_loss = 0.0
-    running_discriminator_target_loss = 0.0
-
-    generator.train()
-    discriminator.train()
-
-    generator_optimizer.zero_grad()
-    discriminator_optimizer.zero_grad()
-
-    # adjust_learning_rate(generator_optimizer, epoch, gen_init_lr, iterations, power)
-    # dis_lr = adjust_learning_rate(discriminator_optimizer, epoch, dis_init_lr, iterations, power)
     
-    for i in tqdm(range(iterations),total=iterations,desc=f'Epoch {epoch}'):
 
-        ## lr_scheduler for the generator
-        current_iter = epoch * iterations + i  # Calculate global iteration count across all epochs
-        # Update learning rate
-        if current_iter % lr_decay_iter == 0 and current_iter <= max_iter:
-            gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr, current_iter, lr_decay_iter, max_iter, power)
-            
-    
-        # defining source and target data
-        source_image, source_label = next(iter(source_dataloader))
-        target_image, _ = next(iter(target_dataloader))
+    for epoch in range(epochs):
 
-        source_image, source_label = source_image.to(device), source_label.to(device)
-        source_label = source_label.squeeze(1) # removing the channel dimension
-        target_image = target_image.to(device)
+        try:
+            from IPython import get_ipython
+            if get_ipython():
+                from tqdm.notebook import tqdm
+        except:
+            from tqdm import tqdm
 
-        # ! The Discriminator weight should not be updated during the generator training !
-        for param in discriminator.parameters():
-            param.requires_grad = False
-        
-        # ! //////////////////////// -------------  Training the Generator  ------------- //////////////////////// !
-        ## * Train with the source data
-        # Forward pass Generator
-        # * The source features in here are same as the segmentation output as the low-dimenssion segmentation has been used as input of discriminator 
-        source_gen_output = generator(source_image)
-        # segmentation loss for generator
-        if isinstance(source_gen_output,tuple):
-            loss_gen_source = generator_loss(source_gen_output[0], source_label)
-            loss_gen_source += generator_loss(source_gen_output[1], source_label)
-            loss_gen_source += generator_loss(source_gen_output[2], source_label)
-            source_features, _ , _ = source_gen_output
-        else:
-            loss_gen_source = generator_loss(source_gen_output, source_label)
-            source_features = source_gen_output
-
-        running_generator_source_loss += loss_gen_source.item()
-        # backward the generator loss        
-        loss_gen_source.backward()
-
-        ## * Train with the target data
-        
-        target_output = generator(target_image)
-        if isinstance(target_output,tuple):
-            target_feature, _ , _ = target_output
-        else:
-            target_feature = target_output
-        
-        # Forward pass Discriminator
-        predicted_target_domain = discriminator(F.softmax(target_feature, dim=1))
-
-        # ! Adversarial loss 
-        source_mask = torch.ones(predicted_target_domain.size()).to(device)
-        loss_adversarial = lambda_ * discriminator_loss(predicted_target_domain, source_mask)
-
-        running_adversarial_loss += loss_adversarial.item()
-
-        loss_adversarial.backward()
-        
-        # ! //////////////////////// -------------  Training the Discriminator  ------------- //////////////////////// !
-        ## * The Discriminator weight now should be updated during the discriminator training !
-        for param in discriminator.parameters():
-            param.requires_grad = True
-
-        # detaching the features to avoid the gradient flow to the generator
-        source_features = source_features.detach()
-        target_feature = target_feature.detach()
-        ## * Train with the source data
-        predicted_source_domain = discriminator(F.softmax(source_features))
-        source_mask = torch.ones(predicted_source_domain.size()).to(device)
-        loss_disc_source = discriminator_loss(predicted_source_domain, source_mask)
-
-        running_discriminator_source_loss += loss_disc_source.item()
-
-        loss_disc_source.backward()
-
-        ## * Train with the target data
-        predicted_target_domain = discriminator(F.softmax(target_feature))
-        target_mask = torch.zeros(predicted_target_domain.size()).to(device)
-        loss_disc_target = discriminator_loss(predicted_target_domain, target_mask)
-
-        running_discriminator_target_loss += loss_disc_target.item()
-
-        loss_disc_target.backward()
-
-
-        ## * ---------------------- Loggings ---------------------- * ##
+        # setup callbacks
         for callback in callbacks:
-            callback.on_batch_end(i, {
-                'loss_gen_source': loss_gen_source.item(),
-                'loss_adversarial': loss_adversarial.item(),
-                'loss_disc_source': loss_disc_source.item(),
-                'loss_disc_target': loss_disc_target.item(),
-                'lr_gen': gen_lr,
-            })
-        
-        if when_print != -1 and (i % when_print == 0 and i != 0):
-            print(f'Iteration {i}')
-            utils.tabular_print({
-                'loss_gen_source': running_generator_source_loss/iterations,
-                'loss_adversarial': running_adversarial_loss/iterations,
-                'loss_disc_source': running_discriminator_source_loss/iterations,
-                'loss_disc_target': running_discriminator_target_loss/iterations,
-                'lr_gen': gen_lr,
-            })
+            callback.on_train_begin()
+
+
+        running_generator_source_loss = 0.0
+        running_adversarial_loss = 0.0
+        running_discriminator_source_loss = 0.0
+        running_discriminator_target_loss = 0.0
+
+        generator_correct = 0
+        generator_total = 0
+
+        generator.train()
+        discriminator.train()
+
+        generator_optimizer.zero_grad()
+        discriminator_optimizer.zero_grad()
+
+        dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_init_lr , epoch, lr_decay_iter, epochs, power)
+        gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr , epoch, lr_decay_iter, epochs, power)
+
+        for i in tqdm(range(iterations),total=iterations,desc=f'Epoch {epoch}'):
+
+            # ## lr_scheduler for the generator
+            # current_iter = epoch * iterations + i  # Calculate global iteration count across all epochs
+            # # Update learning rate
+            # if current_iter % lr_decay_iter == 0 and current_iter <= max_iter:
+            #     gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr, current_iter, lr_decay_iter, max_iter, power)
+
+
+            # defining source and target data
+            source_image, source_label = next(iter(source_dataloader))
+            target_image, _ = next(iter(target_dataloader))
+
+            source_image, source_label = source_image.to(device), source_label.to(device)
+            source_label = source_label.squeeze(1) # removing the channel dimension
+            target_image = target_image.to(device)
+
+            # ! The Discriminator weight should not be updated during the generator training !
+            for param in discriminator.parameters():
+                param.requires_grad = False
+
+            # ! //////////////////////// -------------  Training the Generator  ------------- //////////////////////// !
+            ## * Train with the source data
+            # Forward pass Generator
+            # * The source features in here are same as the segmentation output as the low-dimenssion segmentation has been used as input of discriminator 
+            source_gen_output = generator(source_image)
+            # segmentation loss for generator
+            if isinstance(source_gen_output,tuple):
+                loss_gen_source = generator_loss(source_gen_output[0], source_label)
+                loss_gen_source += generator_loss(source_gen_output[1], source_label)
+                loss_gen_source += generator_loss(source_gen_output[2], source_label)
+                source_features, _ , _ = source_gen_output
+            else:
+                loss_gen_source = generator_loss(source_gen_output, source_label)
+                source_features = source_gen_output
+
+            running_generator_source_loss += loss_gen_source.item()
+            # backward the generator loss        
+            loss_gen_source.backward()
+
+            ## * Train with the target data
+
+            target_output = generator(target_image)
+            if isinstance(target_output,tuple):
+                target_feature, _ , _ = target_output
+            else:
+                target_feature = target_output
+
+            # Forward pass Discriminator
+            predicted_target_domain = discriminator(F.softmax(target_feature, dim=1))
+
+            # ! Adversarial loss 
+            source_mask = torch.ones(predicted_target_domain.size()).to(device)
+            loss_adversarial = lambda_ * discriminator_loss(predicted_target_domain, source_mask)
+
+            running_adversarial_loss += loss_adversarial.item()
+
+            loss_adversarial.backward()
+
+            # ! //////////////////////// -------------  Training the Discriminator  ------------- //////////////////////// !
+            ## * The Discriminator weight now should be updated during the discriminator training !
+            for param in discriminator.parameters():
+                param.requires_grad = True
+
+            # detaching the features to avoid the gradient flow to the generator
+            source_features = source_features.detach()
+            target_feature = target_feature.detach()
+            ## * Train with the source data
+            predicted_source_domain = discriminator(F.softmax(source_features,dim=1))
+            source_mask = torch.ones(predicted_source_domain.size()).to(device)
+            loss_disc_source = discriminator_loss(predicted_source_domain, source_mask)
+
+            running_discriminator_source_loss += loss_disc_source.item()
+
+            loss_disc_source.backward()
+
+            ## * Train with the target data
+            predicted_target_domain = discriminator(F.softmax(target_feature,dim=1))
+            target_mask = torch.zeros(predicted_target_domain.size()).to(device)
+            loss_disc_target = discriminator_loss(predicted_target_domain, target_mask)
+
+            running_discriminator_target_loss += loss_disc_target.item()
+
+            loss_disc_target.backward()
+
+            # ! //////////////////////// -------------  Finalizations  ------------- //////////////////////// !
+            generator_predictred = source_features.argmax(dim=1)    
+            generator_correct += generator_predictred.eq(source_label).sum().item()
+
+            generator_total += source_label.size(0) * source_label.size(1) * source_label.size(2)  # Total number of pixels
+
+            ## * ---------------------- Loggings ---------------------- * ##
+            for callback in callbacks:
+                callback.on_batch_end(i, {
+                    'loss_gen_source': loss_gen_source.item(),
+                    'loss_adversarial': loss_adversarial.item(),
+                    'loss_disc_source': loss_disc_source.item(),
+                    'loss_disc_target': loss_disc_target.item(),
+                })
+
+            if when_print != -1 and (i % when_print == 0 and i != 0):
+                print(f'Iteration {i}')
+                utils.tabular_print({
+                    'loss_gen_source': running_generator_source_loss/iterations,
+                    'loss_adversarial': running_adversarial_loss/iterations,
+                    'loss_disc_source': running_discriminator_source_loss/iterations,
+                    'loss_disc_target': running_discriminator_target_loss/iterations,
+                })
 
         # update the weights
         generator_optimizer.step()
-        discriminator_optimizer.step()
-    
-    for callback in callbacks:
-        callback.on_epoch_end(epoch, {
-            'dis_lr': dis_init_lr,
-        })
+        discriminator_optimizer.step()  
 
+        for callback in callbacks:
+            callback.on_epoch_end(epoch, {
+                'dis_lr': dis_lr,
+                'gen_lr': gen_lr,
+                'Genrator Accuracy': 100. * generator_correct / generator_total,
+            })
+
+        if epoch % do_validation == 0 and do_validation != 0:
+            print('-'*50, 'Validation', '-'*50)
+            val_GTA5(epoch, generator, val_loader, num_classes, class_names, callbacks, device=device)
+            print('-'*100)
     

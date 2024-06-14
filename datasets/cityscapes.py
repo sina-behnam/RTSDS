@@ -9,6 +9,12 @@ import sys
 
 sys.path.append('datasets')
 
+class_names = [
+    "road", "sidewalk", "building",  "wall", "fence", "pole", "traffic light", "traffic sign",
+    "vegetation", "terrain", "sky", "person", "rider", "car",
+    "truck", "bus", "train", "motorcycle", "bicycle"
+]
+
 class CityScapes(Dataset):
     def __init__(self, annotation_path: str, images_path: str, transform=None, target_transform=None):
         super(CityScapes, self).__init__()

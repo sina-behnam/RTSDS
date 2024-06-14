@@ -33,51 +33,7 @@ class UpSampler(nn.Module):
         x = self.conv(x)
         return x
 
-class DomainDiscriminator(nn.Module):
-    '''
-    The network consists of 5 convolution layers with kernel 4 x 4 and stride of 2,
-    where the channel number is {64, 128, 256, 512, 1}, respectively.
-    with the input size [4, 19, 720, 1280] (batch size, channel, height, width).
-    Except for the last layer, each convolution layeris followed by a leaky ReLU [27] parameterized by 0.2.
-    and for the last layer, a softmax function is applied to output the probability of the input image from the source domain or the target domain.
-    No batch normalization is used in the discriminator.
-    '''
-    def __init__(self, num_classes=19, with_grl = False,lambda_ : float = 0.1) -> None:
-        super(DomainDiscriminator, self).__init__()
 
-        self.with_grl = with_grl
-        self.lambda_ = lambda_
-
-        self.conv1 = nn.Conv2d(19, 64, kernel_size=4, stride=2, padding=1)
-        self.conv2 = nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1)
-        self.conv3 = nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1)
-        self.conv4 = nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1)
-        self.classifier = nn.Conv2d(512, 1, kernel_size=4, stride=2, padding=1)
-        self.leaky_relu = nn.LeakyReLU(0.2)
-        # defining the upsampler to interpolate the output to the same size as the input
-
-        # interpolate the output to the same size as the input
-        
-    def forward(self, x):
-        x = self.leaky_relu(self.conv1(x))
-        x = self.leaky_relu(self.conv2(x))
-        x = self.leaky_relu(self.conv3(x))
-        x = self.leaky_relu(self.conv4(x))
-        x = self.classifier(x)
-        
-        if self.with_grl:
-            x = GradientReversalFunction.apply(x, self.lambda_)
-        
-        return x
-
-    def calculate_output_size(self, input_size):
-        x = torch.randn(input_size)
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        x = self.conv4(x)
-        x = self.classifier(x)
-        return x.size()
     
 
 class DANN(nn.Module):
