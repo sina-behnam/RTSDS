@@ -395,7 +395,7 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
                     'loss_disc_target': loss_disc_target.item(),
                 })
 
-            if when_print != -1 and (i % when_print == 0 and i != 0):
+            if (when_print != -1 and when_print != 0) and (i % when_print == 0 and i != 0):
                 print(f'Iteration {i}')
                 utils.tabular_print({
                     'loss_gen_source': running_generator_source_loss/iterations,
@@ -419,4 +419,8 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
             print('-'*50, 'Validation', '-'*50)
             val_GTA5(epoch, generator, val_loader, num_classes, class_names, callbacks, device=device)
             print('-'*100)
+
+
+    for callable in callbacks:
+        callable.on_train_end()
     

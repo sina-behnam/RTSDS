@@ -6,3 +6,5 @@ related-work/**
 /related-work/*
 /**/wandb
 /*.zip
+__pycache__ 
+.env
