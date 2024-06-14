@@ -263,7 +263,12 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
             num_classes : int, class_names : list[str], val_loader : DataLoader,do_validation : int = 1,
             device : str = 'cpu', when_print : int = 10, callbacks : list[Callback]  = []):
     
+    # defining the target interpolation
+    # target_interpolation = torch.nn.Upsample(size=(target_dataloader.dataset[0][1].shape[1],target_dataloader.dataset[0][1].shape[2]), mode='bilinear')
 
+    dis_lr = dis_init_lr
+    gen_lr = gen_init_lr
+    
     for epoch in range(epochs):
 
         try:
@@ -292,8 +297,8 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
         generator_optimizer.zero_grad()
         discriminator_optimizer.zero_grad()
 
-        dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_init_lr , epoch, lr_decay_iter, epochs, dis_power)
-        gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr , epoch, lr_decay_iter, epochs, gen_power)
+        dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_lr , epoch, lr_decay_iter, epochs, dis_power)
+        gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_lr , epoch, lr_decay_iter, epochs, gen_power)
 
         for i in tqdm(range(iterations),total=iterations,desc=f'Epoch {epoch}'):
 
