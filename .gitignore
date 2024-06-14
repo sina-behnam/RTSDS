@@ -8,3 +8,4 @@ related-work/**
 /*.zip
 __pycache__ 
 .env
+*.key
