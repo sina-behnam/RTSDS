@@ -310,7 +310,6 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
             if current_iter % lr_decay_iter == 0 and current_iter <= max_iter:
                 gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr , current_iter, lr_decay_iter, max_iter, gen_power)
 
-
             # defining source and target data
             source_image, source_label = next(iter(source_dataloader))
             target_image, _ = next(iter(target_dataloader))
@@ -426,7 +425,9 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
             'loss_adversarial': running_adversarial_loss/iterations,
             'loss_disc_source': running_discriminator_source_loss/iterations,
             'loss_disc_target': running_discriminator_target_loss/iterations,
-            'Genrator Accuracy': 100. * generator_correct / generator_total,
+            'Genrator Accuracy': (100. * generator_correct / generator_total),
+            'dis_lr': dis_lr if dis_lr else -1,
+            'gen_lr': gen_lr if gen_lr else -1,
         })  
 
         for callback in callbacks:
