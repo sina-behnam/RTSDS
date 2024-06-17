@@ -259,15 +259,13 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
            generator_optimizer : torch.optim.Optimizer, discriminator_optimizer : torch.optim.Optimizer,
             source_dataloader : DataLoader, target_dataloader : DataLoader,
             generator_loss : torch.nn.Module, discriminator_loss : torch.nn.Module, lambda_ : float,
-            gen_init_lr : float, gen_power : float, dis_power : float, dis_init_lr : float, lr_decay_iter : float, max_iter : int,
+            gen_init_lr : float, gen_power : float, dis_power : float, dis_init_lr : float, lr_decay_iter : float, 
             num_classes : int, class_names : list[str], val_loader : DataLoader,do_validation : int = 1,
             device : str = 'cpu', when_print : int = 10, callbacks : list[Callback]  = []):
     
+
     # defining the target interpolation
     # target_interpolation = torch.nn.Upsample(size=(target_dataloader.dataset[0][1].shape[1],target_dataloader.dataset[0][1].shape[2]), mode='bilinear')
-
-    dis_lr = dis_init_lr
-    gen_lr = gen_init_lr
     
     for epoch in range(epochs):
 
@@ -294,19 +292,23 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
         generator.train()
         discriminator.train()
 
-        generator_optimizer.zero_grad()
+        
         discriminator_optimizer.zero_grad()
 
-        dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_lr , epoch, lr_decay_iter, epochs, dis_power)
-        gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_lr , epoch, lr_decay_iter, epochs, gen_power)
+        dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_init_lr , epoch, lr_decay_iter, epochs, dis_power)
+        # gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_lr , epoch, lr_decay_iter, epochs, gen_power)
+
+        max_iter = epochs * iterations
 
         for i in tqdm(range(iterations),total=iterations,desc=f'Epoch {epoch}'):
 
+            generator_optimizer.zero_grad()
+
             # ## lr_scheduler for the generator
-            # current_iter = epoch * iterations + i  # Calculate global iteration count across all epochs
-            # # Update learning rate
-            # if current_iter % lr_decay_iter == 0 and current_iter <= max_iter:
-            #     gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr, current_iter, lr_decay_iter, max_iter, power)
+            current_iter = epoch * iterations + i  # Calculate global iteration count across all epochs
+            # Update learning rate
+            if current_iter % lr_decay_iter == 0 and current_iter <= max_iter:
+                gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr , current_iter, lr_decay_iter, max_iter, gen_power)
 
 
             # defining source and target data
@@ -395,6 +397,10 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
             running_discriminator_target_loss += loss_disc_target.item()
 
             # ! //////////////////////// -------------  Finalizations  ------------- //////////////////////// !
+
+            # updating the generator weights
+            generator_optimizer.step()
+
             generator_predictred = source_features.argmax(dim=1)    
             generator_correct += generator_predictred.eq(source_label).sum().item()
 
@@ -409,10 +415,9 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
                     'loss_disc_target': loss_disc_target.item(),
                 })
 
-        
-                
+         
         # update the weights
-        generator_optimizer.step()
+        # generator_optimizer.step()
         discriminator_optimizer.step()
 
         print(f'Epoch Results {epoch}')
@@ -426,8 +431,8 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
 
         for callback in callbacks:
             callback.on_epoch_end(epoch, {
-                'dis_lr': dis_lr,
-                'gen_lr': gen_lr,
+                'dis_lr': dis_lr if dis_lr else -1,
+                'gen_lr': gen_lr if gen_lr else -1,
                 'Genrator Accuracy': 100. * generator_correct / generator_total,
             })
 
