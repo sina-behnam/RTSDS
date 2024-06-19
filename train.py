@@ -529,8 +529,16 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
             d_fake_output = discriminator(fake_seg.detach())
 
             # create a corresponding label for the real and fake segmentation
-            real_labels = torch.ones(d_real_output.size()).to(device)
-            fake_labels = torch.zeros(d_fake_output.size()).to(device)
+            real_labels = torch.zeros(d_real_output.size()).to(device)
+            fake_labels = torch.ones(d_fake_output.size()).to(device)
+
+            # if with_concate:
+            #     # createa a concatenated output for the discriminator based on the real and fake segmentation
+            #     d_output = torch.cat((d_real_output, d_fake_output), 0)
+            #     d_labels = torch.cat((real_labels, fake_labels), 0)
+
+            #     d_loss = discriminator_loss(d_output, d_labels)
+
 
             # calculate the loss for the discriminator
             d_real_loss = discriminator_loss(d_real_output, real_labels)
@@ -561,12 +569,12 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
                 gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr , current_iter, lr_decay_iter, max_iter, gen_power)
 
             # ! Adversarial loss
-            d_fake_output = discriminator(fake_seg)
+            d_real_output = discriminator(real_seg[0] if isinstance(real_seg,tuple) else real_seg)
 
-            # new real_labels for calculating the adversarial loss but it should represent the fake segmentation (1)
-            # * - [3] One idea could be using same size label as the previous real_labels in the discriminator training phase
-            real_labels = torch.ones(d_fake_output.size()).to(device)
-            loss_adv = discriminator_loss(d_fake_output, real_labels)
+            # new fake_labels for calculating the adversarial loss but it should represent the fake segmentation (1)
+            # * - [3] One idea could be using same size label as the previous fake_labels in the discriminator training phase
+            fake_labels = torch.ones(d_real_output.size()).to(device)
+            loss_adv = discriminator_loss(d_real_output, fake_labels)
 
             # Total loss for the generator
             g_loss = g_loss_seg + lambda_ * loss_adv
