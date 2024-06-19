@@ -292,9 +292,6 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
         generator.train()
         discriminator.train()
 
-        
-        discriminator_optimizer.zero_grad()
-
         dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_init_lr , epoch, lr_decay_iter, epochs, dis_power)
         # gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_lr , epoch, lr_decay_iter, epochs, gen_power)
 
@@ -303,6 +300,7 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
         for i in tqdm(range(iterations),total=iterations,desc=f'Epoch {epoch}'):
 
             generator_optimizer.zero_grad()
+            discriminator_optimizer.zero_grad()
 
             # ## lr_scheduler for the generator
             current_iter = epoch * iterations + i  # Calculate global iteration count across all epochs
@@ -361,7 +359,6 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
             # normalize the loss
             loss_adversarial = loss_adversarial / iterations
 
-            loss_adversarial.backward()
             running_adversarial_loss += loss_adversarial.item()
 
             # ! //////////////////////// -------------  Training the Discriminator  ------------- //////////////////////// !
@@ -392,13 +389,13 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
             loss_disc_target = loss_disc_target / iterations            
 
             loss_disc_target.backward()
-
             running_discriminator_target_loss += loss_disc_target.item()
 
             # ! //////////////////////// -------------  Finalizations  ------------- //////////////////////// !
 
             # updating the generator weights
             generator_optimizer.step()
+            discriminator_optimizer.step()
 
             generator_predictred = source_features.argmax(dim=1)    
             generator_correct += generator_predictred.eq(source_label).sum().item()
@@ -414,10 +411,6 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
                     'loss_disc_target': loss_disc_target.item(),
                 })
 
-         
-        # update the weights
-        # generator_optimizer.step()
-        discriminator_optimizer.step()
 
         print(f'Epoch Results {epoch}')
         utils.tabular_print({
