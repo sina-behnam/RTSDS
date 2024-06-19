@@ -456,10 +456,12 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
 
     # defining the target interpolation
     # target_interpolation = torch.nn.Upsample(size=(target_dataloader.dataset[0][1].shape[1],target_dataloader.dataset[0][1].shape[2]), mode='bilinear')
-    generator.train()
-    discriminator.train()
+    
 
     for epoch in range(epochs):
+
+        generator.train()
+        discriminator.train()
 
         try:
             from IPython import get_ipython
@@ -471,7 +473,6 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
         # setup callbacks
         for callback in callbacks:
             callback.on_train_begin()
-
 
         running_generator_source_loss = 0.0
         running_adversarial_loss = 0.0
@@ -508,7 +509,11 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
             # the fake segmentation from the source image
             fake_seg = generator(source_image)
 
+            # Calculate the loss for the generator and we will use it for the adversarial part later.
             if isinstance(fake_seg,tuple):
+                g_loss_seg = generator_loss(fake_seg[0], source_label)
+                g_loss_seg += generator_loss(fake_seg[1], source_label)
+                g_loss_seg += generator_loss(fake_seg[2], source_label)
                 fake_seg = fake_seg[0]
 
             # Real segmentation from the target image (since the target image is from the Cityscapes Real-Wold dataset)
@@ -555,15 +560,6 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
             if current_iter % lr_decay_iter == 0 and current_iter <= max_iter:
                 gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr , current_iter, lr_decay_iter, max_iter, gen_power)
 
-            fake_seg = generator(source_image)
-            
-            # Calculate the loss for the generator
-            if isinstance(fake_seg,tuple):
-                g_loss_seg = generator_loss(fake_seg[0], source_label)
-                g_loss_seg += generator_loss(fake_seg[1], source_label)
-                g_loss_seg += generator_loss(fake_seg[2], source_label)
-                fake_seg = fake_seg[0]
-            
             # ! Adversarial loss
             d_fake_output = discriminator(fake_seg)
 
