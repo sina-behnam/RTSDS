@@ -47,15 +47,20 @@ import wandb
 
 from callbacks import Callback
 
+
 class WandBCallback(Callback):
-    def __init__(self, project_name : str, run_name : str =None, config : dict = None):
-        wandb.init(project=project_name, name=run_name, config=config)
+    def __init__(self, project_name : str, run_name : str =None, config : dict = None,note : str =''):
+        wandb.init(project=project_name, name=run_name, config=config, notes=note)
     
     def on_train_end(self, logs=None):
+        print('The train finished completely and terminate the wandb logger.')
         wandb.finish()
 
     def on_batch_end(self, batch, logs=None):
-         wandb.log({**logs})
+        wandb.log({**logs})
+            
+    def on_epoch_end(self, epoch,logs=None):
+        wandb.log({**logs})
 
     def on_validation_end(self, logs=None,data=None):
         wandb.log(logs)
