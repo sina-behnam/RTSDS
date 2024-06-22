@@ -551,26 +551,26 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
             # zero the gradients
             discriminator_optimizer.zero_grad()
             # disable the gradient flow to the generator
-            
-            # the fake segmentation from the source image
-            fake_seg = generator(source_image)
-            if isinstance(fake_seg,tuple):
-                fake_seg = fake_seg[0]
+            with torch.no_grad():
+                # the fake segmentation from the source image
+                fake_seg = generator(source_image)
+                if isinstance(fake_seg,tuple):
+                    fake_seg = fake_seg[0]
 
-            fake_seg = F.adaptive_avg_pool2d(fake_seg, (target_size[2], target_size[3]))
-            # forward pass the fake segmentation to the discriminator
-            # Real segmentation from the target image (since the target image is from the Cityscapes Real-Wold dataset)
-            real_seg = generator(target_image)
-            if isinstance(real_seg,tuple):
-                real_seg = real_seg[0]
+                fake_seg = F.adaptive_avg_pool2d(fake_seg, (target_size[2], target_size[3]))
+                # forward pass the fake segmentation to the discriminator
+                # Real segmentation from the target image (since the target image is from the Cityscapes Real-Wold dataset)
+                real_seg = generator(target_image)
+                if isinstance(real_seg,tuple):
+                    real_seg = real_seg[0]
 
-            real_seg = F.adaptive_avg_pool2d(real_seg, (target_size[2], target_size[3]))
+                real_seg = F.adaptive_avg_pool2d(real_seg, (target_size[2], target_size[3]))
 
             # forward pass the real and fake segmentation to the discriminator
             # * - [1] This is an idea that we may able to train the discriminator with the real_seg from source label
             # *       Not with the output of the generator.
-            d_real_output = discriminator(F.softmax(real_seg.detach(),dim=1))
-            d_fake_output = discriminator(F.softmax(fake_seg.detach(),dim=1))
+            d_real_output = discriminator(F.softmax(real_seg.detach(),dim=1)).requires_grad_(True)
+            d_fake_output = discriminator(F.softmax(fake_seg.detach(),dim=1)).requires_grad_(True)
 
             # calculate the loss for the discriminator
             d_real_loss = discriminator_loss(d_real_output, real_labels)
