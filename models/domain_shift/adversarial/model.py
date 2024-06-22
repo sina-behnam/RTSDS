@@ -48,9 +48,8 @@ class DomainDiscriminator(nn.Module):
         self.conv4 = nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1)
         self.classifier = nn.Conv2d(512, 1, kernel_size=4, stride=2, padding=1)
         self.leaky_relu = nn.LeakyReLU(0.2)
-        # defining the upsampler to interpolate the output to the same size as the input
-
-        # interpolate the output to the same size as the input
+        # For simplicity, we add a adaptive average pooling layer to make the output size 1 x 1
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         
     def forward(self, x):
         x = self.leaky_relu(self.conv1(x))
@@ -58,17 +57,8 @@ class DomainDiscriminator(nn.Module):
         x = self.leaky_relu(self.conv3(x))
         x = self.leaky_relu(self.conv4(x))
         x = self.classifier(x)
-        
+        x = self.avgpool(x)
         if self.with_grl:
             x = GradientReversalFunction.apply(x, self.lambda_)
         
         return x
-
-    def calculate_output_size(self, input_size):
-        x = torch.randn(input_size)
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        x = self.conv4(x)
-        x = self.classifier(x)
-        return x.size()

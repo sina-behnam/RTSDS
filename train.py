@@ -446,6 +446,190 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
             source_dataloader : DataLoader, target_dataloader : DataLoader,
             generator_loss : torch.nn.Module, discriminator_loss : torch.nn.Module, lambda_ : float,
             gen_init_lr : float, gen_power : float, dis_power : float, dis_init_lr : float, lr_decay_iter : float, 
+            num_classes : int, class_names : list[str], val_loader : DataLoader,
+            do_validation : int = 1,device : str = 'cpu', when_print : int = 10, callbacks : list[Callback]  = []):
+    
+
+    ## Notice: 
+    # real_seg ---> Target Domain
+    # fake_seg ---> Source Domain
+
+    # defining the target interpolation
+    # target_interpolation = torch.nn.Upsample(size=(target_dataloader.dataset[0][1].shape[1],target_dataloader.dataset[0][1].shape[2]), mode='bilinear')
+    
+    for epoch in range(epochs):
+
+        generator.train()
+        discriminator.train()
+
+        try:
+            from IPython import get_ipython
+            if get_ipython():
+                from tqdm.notebook import tqdm
+        except:
+            from tqdm import tqdm
+
+        running_generator_source_loss = 0.0
+        running_adversarial_loss = 0.0
+        running_discriminator_source_loss = 0.0
+        running_discriminator_target_loss = 0.0
+        running_d_total_loss = 0.0
+        running_g_total_loss = 0.0
+
+        generator_correct = 0
+        generator_total = 0
+
+        dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_init_lr , epoch, lr_decay_iter, epochs, dis_power)
+        # gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_lr , epoch, lr_decay_iter, epochs, gen_power)
+
+        max_iter = epochs * iterations
+
+        for i in tqdm(range(iterations),total=iterations,desc=f'Epoch {epoch}'):
+
+            # ! //////////////////////// -------------  Initialization  ------------- //////////////////////// !
+            # defining source and target data
+            source_image, source_label = next(iter(source_dataloader))
+            target_image, _ = next(iter(target_dataloader))
+
+            source_image, source_label = source_image.to(device), source_label.to(device)
+            source_label = source_label.squeeze(1) # removing the channel dimension
+            target_image = target_image.to(device)
+
+            target_size = target_image.size()
+
+            # !  !! Warning: The Batch size of the source and target should be the same !!
+            real_labels = torch.ones(target_size[0],1,1,1).to(device).requires_grad_(False)
+            fake_labels = torch.zeros(target_size[0],1,1,1).to(device).requires_grad_(False)
+            # ----------------------
+            # ! Train the Generator
+            # ----------------------
+            # zero the gradients
+            generator_optimizer.zero_grad()
+            # ## lr_scheduler for the generator
+            current_iter = epoch * iterations + i  # Calculate global iteration count across all epochs
+            # Update learning rate
+            if current_iter % lr_decay_iter == 0 and current_iter <= max_iter:
+                gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr , current_iter, lr_decay_iter, max_iter, gen_power)
+
+            # train on the source data
+            fake_seg = generator(source_image)
+
+            if isinstance(fake_seg,tuple):
+                g_loss_seg = generator_loss(fake_seg[0], source_label)
+                g_loss_seg += generator_loss(fake_seg[1], source_label)
+                g_loss_seg += generator_loss(fake_seg[2], source_label)
+                fake_seg = fake_seg[0]
+            else:
+                g_loss_seg = generator_loss(fake_seg, source_label)
+
+            # for loggging the accuracy
+            generator_predictred = fake_seg.argmax(dim=1)
+            generator_correct += generator_predictred.eq(source_label).sum().item()
+            generator_total += source_label.size(0) * source_label.size(1) * source_label.size(2)  # Total number of pixels
+
+            # ! Adversarial loss
+            real_seg = generator(target_image)
+            if isinstance(real_seg,tuple):
+                real_seg = real_seg[0]
+
+            real_seg = F.adaptive_avg_pool2d(real_seg, (target_size[2], target_size[3]))
+            d_real_output = discriminator(F.softmax(real_seg,dim=1))
+            loss_adv = discriminator_loss(d_real_output, fake_labels)
+            # Total loss for the generator
+            g_loss = g_loss_seg + lambda_ * loss_adv
+            # backward the loss
+            g_loss.backward()
+            # update the generator weights
+            generator_optimizer.step()
+            # ! //////////////////////// -------------  Logging  ------------- //////////////////////// !
+            running_generator_source_loss += g_loss_seg.item()
+            running_adversarial_loss += loss_adv.item()
+            running_g_total_loss += g_loss.item()
+            # ---------------------- 
+            # ! Train the Discriminator
+            # ----------------------
+            # zero the gradients
+            discriminator_optimizer.zero_grad()
+            # disable the gradient flow to the generator
+            
+            # the fake segmentation from the source image
+            fake_seg = generator(source_image)
+            if isinstance(fake_seg,tuple):
+                fake_seg = fake_seg[0]
+
+            fake_seg = F.adaptive_avg_pool2d(fake_seg, (target_size[2], target_size[3]))
+            # forward pass the fake segmentation to the discriminator
+            # Real segmentation from the target image (since the target image is from the Cityscapes Real-Wold dataset)
+            real_seg = generator(target_image)
+            if isinstance(real_seg,tuple):
+                real_seg = real_seg[0]
+
+            real_seg = F.adaptive_avg_pool2d(real_seg, (target_size[2], target_size[3]))
+
+            # forward pass the real and fake segmentation to the discriminator
+            # * - [1] This is an idea that we may able to train the discriminator with the real_seg from source label
+            # *       Not with the output of the generator.
+            d_real_output = discriminator(F.softmax(real_seg.detach(),dim=1))
+            d_fake_output = discriminator(F.softmax(fake_seg.detach(),dim=1))
+
+            # calculate the loss for the discriminator
+            d_real_loss = discriminator_loss(d_real_output, real_labels)
+            d_fake_loss = discriminator_loss(d_fake_output, fake_labels)
+
+            # calculate the total loss for the discriminator (Average the loss)
+            # * - [3] You might want to use the average loss instead of the sum of the loss
+            d_loss = (d_real_loss + d_fake_loss) 
+            # backward the loss
+            d_loss.backward()
+            # update the discriminator weights
+            discriminator_optimizer.step()
+            # ! //////////////////////// -------------  Logging  ------------- //////////////////////// !
+            running_discriminator_target_loss += d_real_loss.item()
+            running_discriminator_source_loss += d_fake_loss.item()
+            running_d_total_loss += d_loss.item()
+             
+        print(f'Epoch Results {epoch}')
+        utils.tabular_print({
+            'Genrator Accuracy': (100. * generator_correct / generator_total),
+            'dis_lr': dis_lr if dis_lr else -1,
+            'gen_lr': gen_lr if gen_lr else -1,
+        })
+
+        for callback in callbacks:
+            callback.on_epoch_end(epoch, {
+                'dis_lr': dis_lr if dis_lr else -1,
+                'gen_lr': gen_lr if gen_lr else -1,
+                'loss_gen_source': running_generator_source_loss/iterations,
+                'loss_adversarial': running_adversarial_loss/iterations,
+                'loss_disc_source': running_discriminator_source_loss/iterations,
+                'loss_disc_target': running_discriminator_target_loss/iterations,
+                'loss_disc_total': running_d_total_loss/iterations,
+                'loss_gen_total': running_g_total_loss/iterations,
+                'Genrator Accuracy': 100. * generator_correct / generator_total,
+            })
+            
+
+        if do_validation != -1 and epoch % do_validation == 0 and epoch != 0:
+            print('-'*50, 'Validation', '-'*50)
+            val_GTA5(epoch, generator, val_loader, num_classes, class_names, callbacks, device=device)
+            print('-'*100)
+        
+    for callable in callbacks:
+        callable.on_train_end()
+
+
+
+
+
+
+
+
+# 3th implementation of the adversarial training
+def adversarial_train_3(iterations : int ,epochs : int, generator : torch.nn.Module, discriminator : torch.nn.Module,
+           generator_optimizer : torch.optim.Optimizer, discriminator_optimizer : torch.optim.Optimizer,
+            source_dataloader : DataLoader, target_dataloader : DataLoader,
+            generator_loss : torch.nn.Module, discriminator_loss : torch.nn.Module, lambda_ : float,
+            gen_init_lr : float, gen_power : float, dis_power : float, dis_init_lr : float, lr_decay_iter : float, 
             num_classes : int, class_names : list[str], val_loader : DataLoader,do_validation : int = 1,
             device : str = 'cpu', when_print : int = 10, callbacks : list[Callback]  = []):
     
@@ -476,15 +660,12 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
 
         running_generator_source_loss = 0.0
         running_adversarial_loss = 0.0
-        running_discriminator_source_loss = 0.0
-        running_discriminator_target_loss = 0.0
         running_d_total_loss = 0.0
         running_g_total_loss = 0.0
 
         generator_correct = 0
         generator_total = 0
 
-        dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_init_lr , epoch, lr_decay_iter, epochs, dis_power)
         # gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_lr , epoch, lr_decay_iter, epochs, gen_power)
 
         max_iter = epochs * iterations
@@ -499,12 +680,19 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
             source_image, source_label = source_image.to(device), source_label.to(device)
             source_label = source_label.squeeze(1) # removing the channel dimension
             target_image = target_image.to(device)
-            # ---------------------- 
-            # ! Train the Discriminator
-            # ----------------------
 
+            # ## lr_scheduler for the generator
+            current_iter = epoch * iterations + i  # Calculate global iteration count across all epochs
+            # Update learning rate
+            if current_iter % lr_decay_iter == 0 and current_iter <= max_iter:
+                gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr , current_iter, lr_decay_iter, max_iter, gen_power)
+                dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_init_lr , current_iter, lr_decay_iter, max_iter, dis_power)
+            
+            # ----------------------
+            # ! Train the Generator
+            # ----------------------
             # zero the gradients
-            discriminator_optimizer.zero_grad()
+            generator_optimizer.zero_grad()
 
             # the fake segmentation from the source image
             fake_seg = generator(source_image)
@@ -515,6 +703,8 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
                 g_loss_seg += generator_loss(fake_seg[1], source_label)
                 g_loss_seg += generator_loss(fake_seg[2], source_label)
                 fake_seg = fake_seg[0]
+            else:
+                g_loss_seg = generator_loss(fake_seg, source_label)
 
             # Real segmentation from the target image (since the target image is from the Cityscapes Real-Wold dataset)
             real_seg = generator(target_image)
@@ -522,78 +712,86 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
             if isinstance(real_seg,tuple):
                 real_seg = real_seg[0]
 
+            g_loss_seg.backward()
+            generator_optimizer.step()
+
+            # ---------------------- 
+            # ! Train the Discriminator
+            # ----------------------
+            discriminator_optimizer.zero_grad()
+
             # forward pass the real and fake segmentation to the discriminator
             # * - [1] This is an idea that we may able to train the discriminator with the real_seg from source label
             # *       Not with the output of the generator.
-            d_real_output = discriminator(real_seg.detach())
-            d_fake_output = discriminator(fake_seg.detach())
+            d_real_output = discriminator(real_seg) 
+            d_fake_output = F.interpolate(discriminator(fake_seg), size=(d_real_output.shape[2],d_real_output.shape[3]), mode='bilinear')
+            
+            # createa a concatenated output for the discriminator based on the real and fake segmentation
+            d_output = torch.cat((d_real_output, d_fake_output), 0)
+            d_labels = torch.cat(
+                (torch.zeros(d_real_output.size()).to(device),
+                torch.ones(d_fake_output.size()).to(device))
+                , 0)
+            d_loss = discriminator_loss(d_output, d_labels)
 
-            # create a corresponding label for the real and fake segmentation
-            real_labels = torch.zeros(d_real_output.size()).to(device)
-            fake_labels = torch.ones(d_fake_output.size()).to(device)
-
-            # if with_concate:
-            #     # createa a concatenated output for the discriminator based on the real and fake segmentation
-            #     d_output = torch.cat((d_real_output, d_fake_output), 0)
-            #     d_labels = torch.cat((real_labels, fake_labels), 0)
-
-            #     d_loss = discriminator_loss(d_output, d_labels)
-
-
-            # calculate the loss for the discriminator
-            d_real_loss = discriminator_loss(d_real_output, real_labels)
-            d_fake_loss = discriminator_loss(d_fake_output, fake_labels)
-
-            # calculate the total loss for the discriminator (Average the loss)
-            # * - [2] You might want to use the average loss instead of the sum of the loss
-            d_loss = (d_real_loss + d_fake_loss) / 2 
             # backward the loss
             d_loss.backward()
             # update the discriminator weights
             discriminator_optimizer.step()
             # for logging
-            running_discriminator_target_loss += d_real_loss.item()
-            running_discriminator_source_loss += d_fake_loss.item()
             running_d_total_loss += d_loss.item()
 
-            # ----------------------
-            # ! Train the Generator
-            # ----------------------
+            del real_seg, fake_seg, d_real_output, d_fake_output, d_output, d_labels
 
-            # zero the gradients
-            generator_optimizer.zero_grad()
-            # ## lr_scheduler for the generator
-            current_iter = epoch * iterations + i  # Calculate global iteration count across all epochs
-            # Update learning rate
-            if current_iter % lr_decay_iter == 0 and current_iter <= max_iter:
-                gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr , current_iter, lr_decay_iter, max_iter, gen_power)
-
+            # ----------------------
             # ! Adversarial loss
-            d_real_output = discriminator(real_seg[0] if isinstance(real_seg,tuple) else real_seg)
+            # ----------------------
 
-            # new fake_labels for calculating the adversarial loss but it should represent the fake segmentation (1)
-            # * - [3] One idea could be using same size label as the previous fake_labels in the discriminator training phase
-            fake_labels = torch.ones(d_real_output.size()).to(device)
-            loss_adv = discriminator_loss(d_real_output, fake_labels)
+            for param in discriminator.parameters():
+                param.requires_grad = False
 
+            generator_optimizer.zero_grad()
+
+            real_seg_2 = generator(target_image)
+            if isinstance(real_seg_2,tuple):
+                real_seg_2 = real_seg_2[0]
+
+            fake_seg_2 = generator(source_image)
+            if isinstance(fake_seg_2,tuple):
+                g_loss_seg = generator_loss(fake_seg_2[0], source_label)
+                g_loss_seg += generator_loss(fake_seg_2[1], source_label)
+                g_loss_seg += generator_loss(fake_seg_2[2], source_label)
+                fake_seg_2 = fake_seg_2[0]
+            else:
+                g_loss_seg = generator_loss(fake_seg_2, source_label)
+              
+            d_real_output = discriminator(real_seg_2)
+            d_fake_output = F.interpolate(discriminator(fake_seg_2), size=(d_real_output.shape[2],d_real_output.shape[3]), mode='bilinear')
+
+            adv_labels = torch.cat(
+                (torch.ones(d_real_output.size()).to(device),
+                torch.zeros(d_fake_output.size()).to(device)), 0)
+            adv_output = torch.cat((d_real_output, d_fake_output), 0)
+
+            adv_loss = discriminator_loss(adv_output, adv_labels)
             # Total loss for the generator
-            g_loss = g_loss_seg + lambda_ * loss_adv
+            g_loss = g_loss_seg + lambda_ * adv_loss
             # backward the loss
             g_loss.backward()
             # update the generator weights
             generator_optimizer.step()
             # for logging
             running_generator_source_loss += g_loss_seg.item()
-            running_adversarial_loss += loss_adv.item()
+            running_adversarial_loss += adv_loss.item()
             running_g_total_loss += g_loss.item()
 
-            # ! //////////////////////// -------------  Finalizations  ------------- //////////////////////// !
-
-            generator_predictred = fake_seg.argmax(dim=1)
+            generator_predictred = fake_seg_2.argmax(dim=1)
             generator_correct += generator_predictred.eq(source_label).sum().item()
 
             generator_total += source_label.size(0) * source_label.size(1) * source_label.size(2)  # Total number of pixels
 
+            for param in discriminator.parameters():
+                param.requires_grad = True
             ## * ---------------------- Loggings ---------------------- * ##
              
         print(f'Epoch Results {epoch}')
@@ -609,8 +807,6 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
                 'gen_lr': gen_lr if gen_lr else -1,
                 'loss_gen_source': running_generator_source_loss/iterations,
                 'loss_adversarial': running_adversarial_loss/iterations,
-                'loss_disc_source': running_discriminator_source_loss/iterations,
-                'loss_disc_target': running_discriminator_target_loss/iterations,
                 'loss_disc_total': running_d_total_loss/iterations,
                 'loss_gen_total': running_g_total_loss/iterations,
                 'Genrator Accuracy': 100. * generator_correct / generator_total,
@@ -624,7 +820,6 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
         
     for callable in callbacks:
         callable.on_train_end()
-
 
 
     
