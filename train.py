@@ -479,7 +479,7 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
         generator_correct = 0
         generator_total = 0
 
-        dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_init_lr , epoch, lr_decay_iter, epochs, dis_power)
+        
         # gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_lr , epoch, lr_decay_iter, epochs, gen_power)
 
         max_iter = epochs * iterations
@@ -509,8 +509,10 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
             current_iter = epoch * iterations + i  # Calculate global iteration count across all epochs
             # Update learning rate
             if current_iter % lr_decay_iter == 0 and current_iter <= max_iter:
-                gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr , current_iter, lr_decay_iter, max_iter, gen_power)
-
+                    dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_init_lr , current_iter, lr_decay_iter, max_iter, dis_power)
+                    
+            # with no generator learning rate scheduler
+            gen_lr = gen_init_lr
             # train on the source data
             fake_seg = generator(source_image)
 
