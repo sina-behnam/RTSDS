@@ -62,3 +62,27 @@ class DomainDiscriminator(nn.Module):
             x = GradientReversalFunction.apply(x, self.lambda_)
         
         return x
+    
+class TinyDomainDiscriminator(nn.Module):
+    
+    def __init__(self, num_classes=19, with_grl = False,lambda_ : float = 0.1) -> None:
+        super(DomainDiscriminator, self).__init__()
+
+        self.with_grl = with_grl
+        self.lambda_ = lambda_
+
+        self.conv1 = nn.Conv2d(19, 64, kernel_size=4, stride=2, padding=1)
+        self.classifier = nn.Conv2d(128, 1, kernel_size=4, stride=2, padding=1)
+        self.leaky_relu = nn.LeakyReLU(0.2)
+        # For simplicity, we add a adaptive average pooling layer to make the output size 1 x 1
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        
+    def forward(self, x):
+        x = self.leaky_relu(self.conv1(x))
+        x = self.classifier(x)
+        x = self.avgpool(x)
+        if self.with_grl:
+            x = GradientReversalFunction.apply(x, self.lambda_)
+        
+        return x
+    

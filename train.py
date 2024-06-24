@@ -510,9 +510,7 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
             # Update learning rate
             if current_iter % lr_decay_iter == 0 and current_iter <= max_iter:
                     dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_init_lr , current_iter, lr_decay_iter, max_iter, dis_power)
-                    
-            # with no generator learning rate scheduler
-            gen_lr = gen_init_lr
+                    gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr , current_iter, lr_decay_iter, max_iter, dis_power)
             # train on the source data
             fake_seg = generator(source_image)
 
