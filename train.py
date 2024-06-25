@@ -536,7 +536,10 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
             d_real_output = discriminator(F.softmax(real_seg,dim=1))
             loss_adv = discriminator_loss(d_real_output, fake_labels)
             # Total loss for the generator
-            g_loss = g_loss_seg + lambda_ * loss_adv
+            
+            # lambda scheduling 
+            lambda_adv = max(lambda_, (lambda_*10) - 0.001 * epoch)  # Decrease over time
+            g_loss = g_loss_seg + lambda_adv * loss_adv
             # backward the loss
             g_loss.backward()
             # update the generator weights
