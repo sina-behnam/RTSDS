@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import pandas as pd
+import torch.nn as nn
 
 def poly_lr_scheduler(optimizer, init_lr, iter, lr_decay_iter=1,
                       max_iter=300, power=0.9):
@@ -64,6 +65,19 @@ def tabular_print(log_dict):
     for col in df.columns:
         x.add_column(col, df[col].values)
     print(x)
+
+
+def forModel(model,device):
+    if device == 'cuda':
+        model = model.cuda()  # Move model to GPU if available
+        print('The number of cuda GPUs : ',torch.cuda.device_count())
+
+    # If you have multiple GPUs available
+    
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model) # Use DataParallel to wrap your model
+        
+    return model
 
 # def latency(model):
 #     # Latency and FPS Calculation

@@ -1,0 +1,129 @@
+# Data Configuration
+data:
+  cityscapes:
+    images_train_dir: "data/Cityscapes/Cityspaces/images/train"
+    images_val_dir: "data/Cityscapes/Cityspaces/images/val"
+    segmentation_train_dir: "data/Cityscapes/Cityspaces/gtFine/train"
+    segmentation_val_dir: "data/Cityscapes/Cityspaces/gtFine/val"
+    image_size: 512, 1024
+    num_classes: 19
+    batch_size : 4
+    num_workers: 4
+  gta5_modified:
+    images_dir : "data/GTA5_Modified/images"
+    segmentation_dir: "data/GTA5_Modified/labels"
+    image_size: 720, 1280
+    num_classes: 19
+    batch_size : 4
+    num_workers: 4
+
+# Meta data 
+meta:
+  class_names : [
+        "road", "sidewalk", "building",  "wall", "fence", "pole", "traffic light", "traffic sign",
+        "vegetation", "terrain", "sky", "person", "rider", "car",
+        "truck", "bus", "train", "motorcycle", "bicycle"
+    ]
+
+
+# Model Configuration
+model:
+
+  deeplab:
+    backbone: "resnet18"
+    output_stride: 16
+    num_classes: 19
+    pretrained: true
+    pretrained_path: "pretrained_models/deeplabv3_resnet18_coco-586e9e4e.pth"
+    optimizer : 
+      name : "Adam"
+      lr: 0.0001
+    criterion:
+      name: "CrossEntropy"
+      ignore_index: 19
+  
+  bisenet:
+    backbone: "resnet18"
+    num_classes: 19
+    pretrained: true
+    power_lr_factor: 0.9
+    optimizer : 
+      name : "Adam"
+      lr: 0.0001
+    criterion:
+      name: "CrossEntropy"
+      ignore_index: 19
+    
+  
+  adversarial_model:
+    generator:
+      name : "bisenet"
+      power_lr_factor: 0.9
+      optimizer : 
+        name : "Adam"
+        lr: 0.0001
+      criterion:
+        name: "CrossEntropy"
+        ignore_index: 19
+  
+    discriminator:
+      name : "tiny"
+      power_lr_factor: 0.05
+      input_channels: 19
+      optimizer : 
+        name : "Adam"
+        lr: 0.0001
+        weight_decay: 0.0001
+      criterion:
+        name: "BCEWithLogits"
+
+# Training Configuration
+training:
+  segmentation:
+    num_classes : 19
+    lambda : 0.1
+    lr_decay_iter : 1
+    epochs: 50
+    do_validation : 1
+    when_print : -1
+
+  domain_adaptation:
+    num_classes : 19
+    iterations: 100
+    lambda : 0.1
+    lr_decay_iter : 1
+    epochs: 50
+    do_validation : 1
+    when_print : -1
+
+      
+# Augmentation Configuration
+augmentation:
+  GaussianBlur:
+    p: 0.5
+    kernel_size: 5, 9
+    sigma : 0.1, 5
+  
+
+# Callbacks Configuration
+callbacks:
+  model_checkpoint:
+    save_dir: "checkpoints"
+    save_name: "model"
+    save_best: true
+    monitor: "val_loss"
+    mode: "min"
+    save_freq: 1
+
+  early_stopping:
+    monitor: "val_loss"
+    mode: "min"
+    patience: 5
+
+  logging:
+    wandb: 
+      project_name : "domain_adaptation"
+      run_name : "v1"
+      note : "Domain Adaptation"
+
+device: "cpu"  # "cuda" or "cpu"

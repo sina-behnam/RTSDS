@@ -7,6 +7,17 @@ from torch.utils.data import DataLoader
 import pandas as pd
 import torch.nn.functional as F
 
+try:
+    from IPython import get_ipython
+    
+    if get_ipython():
+        from tqdm.notebook import tqdm
+    else:
+        from tqdm import tqdm
+
+except:
+    from tqdm import tqdm
+
 
 def train(
     epoch : int,
@@ -47,13 +58,6 @@ def train(
     running_loss = 0.0
     correct = 0
     total = 0
-    
-    try:
-        from IPython import get_ipython
-        if get_ipython():
-            from tqdm.notebook import tqdm
-    except:
-        from tqdm import tqdm
     
     # Iterate over the data
     for batch_idx, (inputs, targets) in tqdm(enumerate(train_loader), total=len(train_loader), desc=f'Epoch {epoch + 1}', leave=False):
@@ -101,7 +105,11 @@ def train(
 
         # Run batch end callbacks
         for callback in callbacks:
-            callback.on_batch_end(batch_idx, running_loss, correct, total)
+            callback.on_batch_end(batch_idx, {
+                'train_loss': loss.item(),
+                'train_accuracy': 100. * correct / total,
+            })
+
 
     # Calculate average loss and accuracy for the epoch
     train_loss = running_loss / len(train_loader)
@@ -110,9 +118,98 @@ def train(
 
     # Run epoch end callbacks
     for callback in callbacks:
-        callback.on_epoch_end(epoch, train_loss, train_accuracy)
+        callback.on_epoch_end(epoch, {
+            'train_loss': train_loss,
+            'train_accuracy': train_accuracy
+        })
 
     return model
+
+def val2(
+    epoch: int,
+    model: torch.nn.Module,
+    val_loader: DataLoader,
+    num_classes: int,
+    class_names: list[str] = None,
+    detailed_report: bool = False,
+    callbacks: list[Callback] = [],
+    device: str = 'cpu'
+):
+    '''Combined validation function with optional detailed class reporting.
+
+    Args:
+        epoch (int): Current epoch number
+        model (nn.Module): Model to evaluate
+        val_loader (DataLoader): Validation loader
+        num_classes (int): Number of classes in the dataset
+        class_names (list): List of class names for reporting (optional, required if detailed_report is True)
+        detailed_report (bool): Whether to provide detailed per-class results
+        callbacks (list): List of callback functions to run during validation
+        device (str): Device to run the evaluation on, default is 'cpu'
+    
+    Returns:
+        float: Mean IoU for the validation set
+        pd.DataFrame (optional): DataFrame with class names and their IoU if detailed_report is True
+    '''
+    if detailed_report and not class_names:
+        raise ValueError("class_names must be provided if detailed_report is True")
+
+    # Run validation begin callbacks
+    for callback in callbacks:
+        callback.on_validation_begin()
+
+    model.eval()
+    total_confusion_matrix = np.zeros((num_classes, num_classes), dtype=np.int64)
+
+    with torch.no_grad():
+        for batch_idx, (inputs, targets) in enumerate(val_loader):
+            inputs = inputs.to(device)
+            targets = targets.to(device).squeeze(1)  # Ensure targets are [batch_size, height, width]
+
+            outputs = model(inputs)
+            if isinstance(outputs, tuple):
+                outputs = outputs[0]  # Select the main output if model returns a tuple
+
+            predicted = torch.argmax(outputs, dim=1).cpu().numpy()
+            targets = targets.cpu().numpy()
+
+            # Update confusion matrix using fast_hist
+            total_confusion_matrix += utils.fast_hist(targets, predicted, num_classes)
+
+            # Calculate True Positive on the confusion matrix
+            TP = np.diag(total_confusion_matrix)
+            # Calculate the Accuracy
+            pixel_acc = np.sum(TP) / np.sum(total_confusion_matrix)
+            # Loss
+            loss = 1. - pixel_acc
+
+            # Run validation batch end callbacks
+            for callback in callbacks:
+                callback.on_validation_batch_end(batch_idx, loss)
+
+    # Calculate per-class IoU from the confusion matrix
+    IoUs = utils.per_class_iou(total_confusion_matrix)
+    mean_iou = np.nanmean(IoUs)  # Calculate mean IoU, ignoring NaNs
+    print(f'Validation Mean IoU for Epoch {epoch + 1}: {mean_iou:.4f}')
+
+    if detailed_report:
+        # Create a DataFrame with class names and IoU values
+        class_result_df = pd.DataFrame({'Class': class_names, 'IoU': [f'{iou:.4f}' for iou in IoUs]})
+        print(class_result_df)
+
+        # Run validation end callbacks with detailed data
+        for callback in callbacks:
+            callback.on_validation_end({
+                'validation_mIoU': mean_iou
+            }, data=class_result_df)
+
+        return mean_iou, class_result_df
+    else:
+        # Run validation end callbacks without detailed data
+        for callback in callbacks:
+            callback.on_validation_end(mean_iou)
+
+        return mean_iou
 
 
 def val(
@@ -268,13 +365,6 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
     # target_interpolation = torch.nn.Upsample(size=(target_dataloader.dataset[0][1].shape[1],target_dataloader.dataset[0][1].shape[2]), mode='bilinear')
     
     for epoch in range(epochs):
-
-        try:
-            from IPython import get_ipython
-            if get_ipython():
-                from tqdm.notebook import tqdm
-        except:
-            from tqdm import tqdm
 
         # setup callbacks
         for callback in callbacks:
@@ -449,6 +539,48 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
             num_classes : int, class_names : list[str], val_loader : DataLoader,
             do_validation : int = 1,device : str = 'cpu', when_print : int = 10, callbacks : list[Callback]  = []):
     
+    """
+    Train a generator and discriminator in an adversarial setting for domain adaptation.
+
+    This function implements the adversarial training loop for a GAN-like model, where the generator learns to generate
+    realistic samples that can fool the discriminator into classifying source domain samples as target domain samples.
+
+    Args:
+        iterations (int): Number of iterations per epoch.
+        epochs (int): Total number of training epochs.
+        generator (torch.nn.Module): The generator network to be trained.
+        discriminator (torch.nn.Module): The discriminator network to be trained.
+        generator_optimizer (torch.optim.Optimizer): Optimizer for the generator.
+        discriminator_optimizer (torch.optim.Optimizer): Optimizer for the discriminator.
+        source_dataloader (DataLoader): DataLoader for the source domain.
+        target_dataloader (DataLoader): DataLoader for the target domain.
+        generator_loss (torch.nn.Module): Loss function for the generator.
+        discriminator_loss (torch.nn.Module): Loss function for the discriminator.
+        lambda_ (float): Weight for the adversarial loss component in the generator's total loss.
+        gen_init_lr (float): Initial learning rate for the generator.
+        gen_power (float): Power factor for the polynomial learning rate decay for the generator.
+        dis_power (float): Power factor for the polynomial learning rate decay for the discriminator.
+        dis_init_lr (float): Initial learning rate for the discriminator.
+        lr_decay_iter (float): Interval in iterations for learning rate decay.
+        num_classes (int): Number of output classes for the segmentation task.
+        class_names (list[str]): List of class names corresponding to the output classes.
+        val_loader (DataLoader): DataLoader for the validation set.
+        do_validation (int, optional): Frequency (in epochs) to perform validation. Default is 1.
+        device (str, optional): Device to run the training on ('cpu' or 'cuda'). Default is 'cpu'.
+        when_print (int, optional): Frequency (in iterations) for printing the progress. Default is 10.
+        callbacks (list[Callback], optional): List of callback objects to handle events during training. Default is an empty list.
+
+    Returns:
+        None
+
+    Notes:
+        - The source domain typically represents synthetic or less complex data, while the target domain represents real-world data.
+        - Real and fake labels for the discriminator are created for the adversarial training process.
+        - This implementation uses an `adaptive average pooling` to ensure the size compatibility between different domains.
+        - The learning rate scheduler uses a `polynomial decay` strategy based on the current iteration.
+        - Generator and discriminator are updated alternately within each iteration of training.
+        - Validation and callback mechanisms are incorporated to monitor training progress.
+    """
 
     ## Notice: 
     # real_seg ---> Target Domain
@@ -461,13 +593,6 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
 
         generator.train()
         discriminator.train()
-
-        try:
-            from IPython import get_ipython
-            if get_ipython():
-                from tqdm.notebook import tqdm
-        except:
-            from tqdm import tqdm
 
         running_generator_source_loss = 0.0
         running_adversarial_loss = 0.0
@@ -622,207 +747,3 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
 
 
 
-
-
-
-
-
-# 3th implementation of the adversarial training
-def adversarial_train_3(iterations : int ,epochs : int, generator : torch.nn.Module, discriminator : torch.nn.Module,
-           generator_optimizer : torch.optim.Optimizer, discriminator_optimizer : torch.optim.Optimizer,
-            source_dataloader : DataLoader, target_dataloader : DataLoader,
-            generator_loss : torch.nn.Module, discriminator_loss : torch.nn.Module, lambda_ : float,
-            gen_init_lr : float, gen_power : float, dis_power : float, dis_init_lr : float, lr_decay_iter : float, 
-            num_classes : int, class_names : list[str], val_loader : DataLoader,do_validation : int = 1,
-            device : str = 'cpu', when_print : int = 10, callbacks : list[Callback]  = []):
-    
-
-    ## Notice: 
-    # real_seg ---> Target Domain
-    # fake_seg ---> Source Domain
-
-    # defining the target interpolation
-    # target_interpolation = torch.nn.Upsample(size=(target_dataloader.dataset[0][1].shape[1],target_dataloader.dataset[0][1].shape[2]), mode='bilinear')
-    
-
-    for epoch in range(epochs):
-
-        generator.train()
-        discriminator.train()
-
-        try:
-            from IPython import get_ipython
-            if get_ipython():
-                from tqdm.notebook import tqdm
-        except:
-            from tqdm import tqdm
-
-        # setup callbacks
-        for callback in callbacks:
-            callback.on_train_begin()
-
-        running_generator_source_loss = 0.0
-        running_adversarial_loss = 0.0
-        running_d_total_loss = 0.0
-        running_g_total_loss = 0.0
-
-        generator_correct = 0
-        generator_total = 0
-
-        # gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_lr , epoch, lr_decay_iter, epochs, gen_power)
-
-        max_iter = epochs * iterations
-
-        for i in tqdm(range(iterations),total=iterations,desc=f'Epoch {epoch}'):
-
-            # ! //////////////////////// -------------  Initialization  ------------- //////////////////////// !
-            # defining source and target data
-            source_image, source_label = next(iter(source_dataloader))
-            target_image, _ = next(iter(target_dataloader))
-
-            source_image, source_label = source_image.to(device), source_label.to(device)
-            source_label = source_label.squeeze(1) # removing the channel dimension
-            target_image = target_image.to(device)
-
-            # ## lr_scheduler for the generator
-            current_iter = epoch * iterations + i  # Calculate global iteration count across all epochs
-            # Update learning rate
-            if current_iter % lr_decay_iter == 0 and current_iter <= max_iter:
-                gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_init_lr , current_iter, lr_decay_iter, max_iter, gen_power)
-                dis_lr = utils.poly_lr_scheduler(discriminator_optimizer, dis_init_lr , current_iter, lr_decay_iter, max_iter, dis_power)
-            
-            # ----------------------
-            # ! Train the Generator
-            # ----------------------
-            # zero the gradients
-            generator_optimizer.zero_grad()
-
-            # the fake segmentation from the source image
-            fake_seg = generator(source_image)
-
-            # Calculate the loss for the generator and we will use it for the adversarial part later.
-            if isinstance(fake_seg,tuple):
-                g_loss_seg = generator_loss(fake_seg[0], source_label)
-                g_loss_seg += generator_loss(fake_seg[1], source_label)
-                g_loss_seg += generator_loss(fake_seg[2], source_label)
-                fake_seg = fake_seg[0]
-            else:
-                g_loss_seg = generator_loss(fake_seg, source_label)
-
-            # Real segmentation from the target image (since the target image is from the Cityscapes Real-Wold dataset)
-            real_seg = generator(target_image)
-
-            if isinstance(real_seg,tuple):
-                real_seg = real_seg[0]
-
-            g_loss_seg.backward()
-            generator_optimizer.step()
-
-            # ---------------------- 
-            # ! Train the Discriminator
-            # ----------------------
-            discriminator_optimizer.zero_grad()
-
-            # forward pass the real and fake segmentation to the discriminator
-            # * - [1] This is an idea that we may able to train the discriminator with the real_seg from source label
-            # *       Not with the output of the generator.
-            d_real_output = discriminator(real_seg) 
-            d_fake_output = F.interpolate(discriminator(fake_seg), size=(d_real_output.shape[2],d_real_output.shape[3]), mode='bilinear')
-            
-            # createa a concatenated output for the discriminator based on the real and fake segmentation
-            d_output = torch.cat((d_real_output, d_fake_output), 0)
-            d_labels = torch.cat(
-                (torch.zeros(d_real_output.size()).to(device),
-                torch.ones(d_fake_output.size()).to(device))
-                , 0)
-            d_loss = discriminator_loss(d_output, d_labels)
-
-            # backward the loss
-            d_loss.backward()
-            # update the discriminator weights
-            discriminator_optimizer.step()
-            # for logging
-            running_d_total_loss += d_loss.item()
-
-            del real_seg, fake_seg, d_real_output, d_fake_output, d_output, d_labels
-
-            # ----------------------
-            # ! Adversarial loss
-            # ----------------------
-
-            for param in discriminator.parameters():
-                param.requires_grad = False
-
-            generator_optimizer.zero_grad()
-
-            real_seg_2 = generator(target_image)
-            if isinstance(real_seg_2,tuple):
-                real_seg_2 = real_seg_2[0]
-
-            fake_seg_2 = generator(source_image)
-            if isinstance(fake_seg_2,tuple):
-                g_loss_seg = generator_loss(fake_seg_2[0], source_label)
-                g_loss_seg += generator_loss(fake_seg_2[1], source_label)
-                g_loss_seg += generator_loss(fake_seg_2[2], source_label)
-                fake_seg_2 = fake_seg_2[0]
-            else:
-                g_loss_seg = generator_loss(fake_seg_2, source_label)
-              
-            d_real_output = discriminator(real_seg_2)
-            d_fake_output = F.interpolate(discriminator(fake_seg_2), size=(d_real_output.shape[2],d_real_output.shape[3]), mode='bilinear')
-
-            adv_labels = torch.cat(
-                (torch.ones(d_real_output.size()).to(device),
-                torch.zeros(d_fake_output.size()).to(device)), 0)
-            adv_output = torch.cat((d_real_output, d_fake_output), 0)
-
-            adv_loss = discriminator_loss(adv_output, adv_labels)
-            # Total loss for the generator
-            g_loss = g_loss_seg + lambda_ * adv_loss
-            # backward the loss
-            g_loss.backward()
-            # update the generator weights
-            generator_optimizer.step()
-            # for logging
-            running_generator_source_loss += g_loss_seg.item()
-            running_adversarial_loss += adv_loss.item()
-            running_g_total_loss += g_loss.item()
-
-            generator_predictred = fake_seg_2.argmax(dim=1)
-            generator_correct += generator_predictred.eq(source_label).sum().item()
-
-            generator_total += source_label.size(0) * source_label.size(1) * source_label.size(2)  # Total number of pixels
-
-            for param in discriminator.parameters():
-                param.requires_grad = True
-            ## * ---------------------- Loggings ---------------------- * ##
-             
-        print(f'Epoch Results {epoch}')
-        utils.tabular_print({
-            'Genrator Accuracy': (100. * generator_correct / generator_total),
-            'dis_lr': dis_lr if dis_lr else -1,
-            'gen_lr': gen_lr if gen_lr else -1,
-        })
-
-        for callback in callbacks:
-            callback.on_epoch_end(epoch, {
-                'dis_lr': dis_lr if dis_lr else -1,
-                'gen_lr': gen_lr if gen_lr else -1,
-                'loss_gen_source': running_generator_source_loss/iterations,
-                'loss_adversarial': running_adversarial_loss/iterations,
-                'loss_disc_total': running_d_total_loss/iterations,
-                'loss_gen_total': running_g_total_loss/iterations,
-                'Genrator Accuracy': 100. * generator_correct / generator_total,
-            })
-            
-
-        if epoch % do_validation == 0 and do_validation != 0:
-            print('-'*50, 'Validation', '-'*50)
-            val_GTA5(epoch, generator, val_loader, num_classes, class_names, callbacks, device=device)
-            print('-'*100)
-        
-    for callable in callbacks:
-        callable.on_train_end()
-
-
-    

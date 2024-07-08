@@ -50,21 +50,24 @@ from callbacks import Callback
 
 class WandBCallback(Callback):
     def __init__(self, project_name : str, run_name : str =None, config : dict = None,note : str =''):
-        wandb.init(project=project_name, name=run_name, config=config, notes=note)
+        self._wandb_ = wandb.init(project=project_name, name=run_name, config=config, notes=note)
+    
+    # def _loging_with_api_key_(self,api_key):
+    #     self._wandb_ = wandb.login(key=api_key)
     
     def on_train_end(self, logs=None):
         print('The train finished completely and terminate the wandb logger.')
-        wandb.finish()
+        self._wandb_.finish()
 
     def on_batch_end(self, batch, logs=None):
-        wandb.log({**logs})
+        self._wandb_.log({**logs})
             
     def on_epoch_end(self, epoch,logs=None):
-        wandb.log({**logs})
+        self._wandb_.log({**logs})
 
     def on_validation_end(self, logs=None,data=None):
-        wandb.log(logs)
-        wandb.log({"per class mIoU": wandb.Table(data=data)})
+        self._wandb_.log(logs)
+        self._wandb_.log({"per class mIoU": wandb.Table(data=data)})
 
         
     
