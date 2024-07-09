@@ -18,6 +18,7 @@ from datasets.cityscapes import CityScapes
 from datasets.gta5 import GTA5
 from utils import IntRangeTransformer, forModel
 from callbacks import Callback, WandBCallback
+import numpy as np
 
 def datasets_loader(config, is_augmented : bool) -> DataLoader:
 
@@ -236,15 +237,26 @@ def argumnet_parser():
     # if log_wandb is set to True
     parser.add_argument('--wandb', action='store_true', help='If the training logs need to be logged to Wandb Platform \
                         [If this flag is set, the training logs will be logged to Wandb Platform]')
-    
+    # set seed
+    parser.add_argument('--seed', type=int, default=42, help='Seed for reproducibility. [Default is 42.]')    
 
 
     return parser.parse_args()
 
 
+# def set seed for torch and if the cuda is available set the seed for cuda as well
+def set_seed(seed):
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    
+    # set seed for numpy
+    np.random.seed(seed)
 
 if __name__ == '__main__':
     args = argumnet_parser()
+
+    set_seed(args.seed)
 
     try: 
         with open(args.config) as f:
@@ -320,7 +332,6 @@ if __name__ == '__main__':
                 optimizer=optimizer,
                 criterion=criterion,
                 train_loader=train_dataloader,
-                val_loader=val_dataloader,
                 epoch=epoch,
                 init_lr=model_hparams['init_lr'],
                 lr_decay_iter=training_cfg['lr_decay_iter'],

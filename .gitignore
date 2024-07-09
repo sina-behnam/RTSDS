@@ -9,3 +9,5 @@ related-work/**
 /*.zip
 __pycache__ 
 .env
+*.ipynb
+*.ipynb_checkpoints
