@@ -604,6 +604,7 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
         generator_correct = 0
         generator_total = 0
 
+        best_mIoU = 0.0
         
         # gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_lr , epoch, lr_decay_iter, epochs, gen_power)
 
@@ -739,9 +740,16 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
 
         if do_validation != -1 and epoch % do_validation == 0 and epoch != 0:
             print('-'*50, 'Validation', '-'*50)
-            val_GTA5(epoch, generator, val_loader, num_classes, class_names, callbacks, device=device)
+            validation_mIou, classes_miou = val_GTA5(epoch, generator, val_loader, num_classes, class_names, callbacks, device=device)
             print('-'*100)
-        
+
+            if validation_mIou > best_mIoU:
+                best_mIoU = validation_mIou
+                torch.save(generator.state_dict(), 'best_generator.pth')
+                torch.save(discriminator.state_dict(), 'best_discriminator.pth')
+                print(f'Best Model Saved at Epoch {epoch}')
+
+
     for callable in callbacks:
         callable.on_train_end()
 
