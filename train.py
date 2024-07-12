@@ -379,6 +379,8 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
         generator_correct = 0
         generator_total = 0
 
+        best_mIoU = 0
+
         generator.train()
         discriminator.train()
 
@@ -448,7 +450,7 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
 
             # normalize the loss
             loss_adversarial = loss_adversarial / iterations
-
+            loss_adversarial.backward()
             running_adversarial_loss += loss_adversarial.item()
 
             # ! //////////////////////// -------------  Training the Discriminator  ------------- //////////////////////// !
@@ -522,8 +524,14 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
 
         if epoch % do_validation == 0 and do_validation != 0:
             print('-'*50, 'Validation', '-'*50)
-            val_GTA5(epoch, generator, val_loader, num_classes, class_names, callbacks, device=device)
+            validation_mIou,_ = val_GTA5(epoch, generator, val_loader, num_classes, class_names, callbacks, device=device)
             print('-'*100)
+
+            if validation_mIou > best_mIoU:
+                best_mIoU = validation_mIou
+                torch.save(generator.state_dict(), 'best_generator.pth')
+                torch.save(discriminator.state_dict(), 'best_discriminator.pth')
+                print(f'Best Model Saved at Epoch {epoch}')
 
 
     for callable in callbacks:
