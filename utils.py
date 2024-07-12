@@ -2,6 +2,8 @@ import numpy as np
 import torch
 import pandas as pd
 import torch.nn as nn
+import time
+
 
 def poly_lr_scheduler(optimizer, init_lr, iter, lr_decay_iter=1,
                       max_iter=300, power=0.9):
@@ -79,39 +81,39 @@ def forModel(model,device):
         
     return model
 
-# def latency(model):
-#     # Latency and FPS Calculation
-#     iterations = 1000
-#     latency = []
-#     FPS = []
+def latency(model,device = 'cpu'):
+    # Latency and FPS Calculation
+    iterations = 1000
+    latency = []
+    FPS = []
 
-#     for _ in range(iterations):
-#         image = torch.randn((4, 3, 512, 1024)).to(device)
-#         start = time.time()
-#         with torch.no_grad():  # Ensure no gradients are computed for speed
-#             output = model(image)
-#         end = time.time()
+    for _ in range(iterations):
+        image = torch.randn((4, 3, 512, 1024)).to(device)
+        start = time.time()
+        with torch.no_grad():  # Ensure no gradients are computed for speed
+            output = model(image)
+        end = time.time()
 
-#         latency_i = end - start
-#         latency.append(latency_i)
-#         FPS_i = 1 / latency_i
-#         FPS.append(FPS_i)
+        latency_i = end - start
+        latency.append(latency_i)
+        FPS_i = 1 / latency_i
+        FPS.append(FPS_i)
 
-#     # Calculate mean and standard deviation for latency and FPS
-#     mean_latency = mean(latency) * 1000  # Convert to milliseconds
-#     std_latency = stdev(latency) * 1000
-#     mean_FPS = mean(FPS)
-#     std_FPS = stdev(FPS)
+    # Calculate mean and standard deviation for latency and FPS
+    mean_latency =torch.mean(latency) * 1000  # Convert to milliseconds
+    std_latency =torch.stdev(latency) * 1000
+    mean_FPS =torch.mean(FPS)
+    std_FPS =torch.stdev(FPS)
 
-#     print(f"Mean Latency: {mean_latency:.2f} ms, Std Latency: {std_latency:.2f} ms")
-#     print(f"Mean FPS: {mean_FPS:.2f}, Std FPS: {std_FPS:.2f}")
+    print(f"Mean Latency: {mean_latency:.2f} ms, Std Latency: {std_latency:.2f} ms")
+    print(f"Mean FPS: {mean_FPS:.2f}, Std FPS: {std_FPS:.2f}")
 
 
-# # FLOP Calculation
-# def flop(model):
-#     image = torch.zeros((4, 3, 512, 1024)).to(device) # Check if we should change something
-#     flops = FlopCountAnalysis(model, image)
-#     print(flop_count_table(flops))
+# FLOP Calculation
+def flop(model,device = 'cpu'):
+    image = torch.zeros((4, 3, 512, 1024)).to(device) # Check if we should change something
+    flops = FlopCountAnalysis(model, image)
+    print(flop_count_table(flops))
 
-# def count_parameters(model):
-#     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
