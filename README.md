@@ -1,3 +1,35 @@
+# Semantic Segmentation and Domain Adaptation on Cityscapes and GTA5 datasets
+
+This repository contains the code for semantic segmentation and domain adaptation on Cityscapes and GTA5 datasets. The code is implemented in PyTorch and uses the DeepLabV and BieSNet model for semantic segmentation. and provided two different datasets as real and synthetic data. 
+
+### Requirements
+
+To install the required packages, please run the following command:
+
+```bash
+pip install -r requirements.txt
+```
+
+### Training
+
+To train the model, you can run the following and specify the configuration file, For checking the available options, you can run the following command:
+
+```bash
+python main.py --help
+```
+
+#### For example:
+
+```bash
+python main.py --config config.yaml --augmented --wandb
+```
+
+#### Configuration file
+
+The configuration file is a YAML file that contains all the hyperparameters and configurations for the training. and datasets paths. You can find an example of the configuration file in root directory, named `config.yaml`.
+
+---
+
 ## Model initialization
 
 In the following link you can find the pretrained weights for DeepLab.
