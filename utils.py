@@ -3,6 +3,7 @@ import torch
 import pandas as pd
 import torch.nn as nn
 import time
+from fvcore.nn import FlopCountAnalysis, flop_count_table
 
 
 def poly_lr_scheduler(optimizer, init_lr, iter, lr_decay_iter=1,
