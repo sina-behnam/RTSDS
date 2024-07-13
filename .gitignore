@@ -7,6 +7,8 @@ related-work/**
 /related-work/*
 /**/wandb
 /*.zip
+# **/__pycache__
+# __pycache__ 
 *.pyc
 *.pyo
 *.pyd
