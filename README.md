@@ -1,32 +1,113 @@
 # Semantic Segmentation and Domain Adaptation on Cityscapes and GTA5 datasets
 
-This repository contains the code for semantic segmentation and domain adaptation on Cityscapes and GTA5 datasets. The code is implemented in PyTorch and uses the DeepLabV and BieSNet model for semantic segmentation. and provided two different datasets as real and synthetic data. 
 
-### Requirements
 
-To install the required packages, please run the following command:
+#### Overview
 
-```bash
-pip install -r requirements.txt
+This repository contains the code for semantic segmentation and domain adaptation on Cityscapes and GTA5 datasets. The code is implemented in PyTorch and uses the DeepLabV and BieSNet model for semantic segmentation. and provided two different datasets as real and synthetic data. The `main.py` script serves as the primary executable to start the training process, guided by configurations specified in the `config.yaml` file.
+
+#### Prerequisites
+1. **Dependencies**: Install the required Python packages using the following command:
+   ```sh
+   pip install -r requirements.txt
+   ```
+
+#### Configuration
+
+The `config.yaml` file contains all the necessary configurations for data, model, training, augmentation, and callbacks. Below is a detailed description of the configuration parameters:
+
+##### Data Configuration
+
+- **Cityscapes Dataset**:
+  - `images_train_dir`: Directory for training images.
+  - `images_val_dir`: Directory for validation images.
+  - `segmentation_train_dir`: Directory for training segmentation labels.
+  - `segmentation_val_dir`: Directory for validation segmentation labels.
+  - `image_size`: Tuple specifying the image size.
+  - `num_classes`: Number of classes.
+  - `batch_size`: Batch size for training.
+  - `num_workers`: Number of worker threads for data loading.
+
+- **GTA5 Modified Dataset**:
+  - Similar parameters as above, but specific to the GTA5 dataset.
+
+##### Meta Data
+
+- `class_names`: List of class names used for segmentation.
+
+##### Model Configuration
+
+- **DeepLab**:
+  - `backbone`: Backbone network architecture.
+  - `output_stride`: Output stride for the model.
+  - `num_classes`: Number of classes.
+  - `pretrained`: Boolean indicating if a pretrained model should be used.
+  - `pretrained_path`: Path to the pretrained model file.
+  - `optimizer`: Optimizer settings.
+  - `criterion`: Loss function settings.
+
+- **BiSeNet**:
+  - Similar parameters as for DeepLab.
+
+- **Adversarial Model**:
+  - Configuration for the generator and discriminator used in domain adaptation.
+
+##### Training Configuration
+
+- **Segmentation**:
+  - Training settings specific to segmentation tasks.
+
+- **Domain Adaptation**:
+  - Training settings specific to domain adaptation tasks.
+
+##### Augmentation Configuration
+
+- Various data augmentation settings such as Gaussian blur and horizontal flip.
+
+##### Callbacks Configuration
+
+- **Model Checkpoint**:
+  - Settings for saving model checkpoints.
+  
+- **Early Stopping**:
+  - Settings for early stopping based on validation loss.
+  
+- **Logging**:
+  - Settings for logging training progress with tools like Weights & Biases.
+  
+- **Images Plots**:
+  - Settings for saving image plots during training.
+
+##### Device
+
+- `device`: Specifies whether to use `cpu` or `cuda` (GPU) for training.
+
+#### Usage
+
+To start the training process, run the following command:
+
+```sh
+python main.py --config config.yaml
 ```
 
-### Training
+#### Arguments
 
-To train the model, you can run the following and specify the configuration file, For checking the available options, you can run the following command:
+For getting help about the arguments, run the following command:
 
-```bash
+```sh
 python main.py --help
 ```
 
-#### For example:
+#### Main Script (`main.py`)
 
-```bash
-python main.py --config config.yaml --augmented --wandb
-```
+The main script is responsible for:
 
-#### Configuration file
-
-The configuration file is a YAML file that contains all the hyperparameters and configurations for the training. and datasets paths. You can find an example of the configuration file in root directory, named `config.yaml`.
+1. **Loading Configuration**: Reads the configuration from `config.yaml`.
+2. **Initializing Model**: Sets up the model architecture based on the configuration.
+3. **Data Loading**: Prepares the data loaders for training and validation datasets.
+4. **Training Loop**: Executes the training loop, including forward and backward passes, loss calculation, and optimizer updates.
+5. **Validation**: Performs validation at specified intervals and logs the results.
+6. **Callbacks**: Handles callbacks such as model checkpointing, early stopping, and logging.
 
 ---
 
