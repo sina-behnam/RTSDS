@@ -62,7 +62,8 @@ class DomainDiscriminator(nn.Module):
             x = GradientReversalFunction.apply(x, self.lambda_)
         
         return x
-    
+
+# The discriminator network is devised by us where it hasn'n been provided in the paper.
 class TinyDomainDiscriminator(nn.Module):
     
     def __init__(self, num_classes=19) -> None:

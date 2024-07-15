@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 import torch
 from models.deeplabv2 import deeplabv2
 from models.domain_shift.adversarial.model import DomainDiscriminator,TinyDomainDiscriminator
-from train import train, adversarial_train_2
+from train import train, adversarial_train_2, adversarial_train
 from models.bisenet import build_bisenet
 from torch.utils.data import DataLoader
 from collections import namedtuple
@@ -307,7 +307,7 @@ if __name__ == '__main__':
 
         training_cfg = config.training['domain_adaptation']
 
-        adversarial_train_2(
+        adversarial_train(
             iterations=training_cfg['iterations'],
             epochs=training_cfg['epochs'],
             lambda_=training_cfg['lambda'],
