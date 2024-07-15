@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 from collections import namedtuple
 from datasets.cityscapes import CityScapes
 from datasets.gta5 import GTA5
-from validation import val, val2, val_GTA5
+from validation import val,  val_GTA5
 from utils import IntRangeTransformer, forModel
 from callbacks import Callback, WandBCallback
 import numpy as np
