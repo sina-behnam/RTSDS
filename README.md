@@ -1,10 +1,10 @@
-# Semantic Segmentation and Domain Adaptation on Cityscapes and GTA5 datasets
+# Real-Time Semantic Segmentation to address the Domain Shift problem with Domain Adaptation
 
 
 
 #### Overview
 
-This repository contains the code for semantic segmentation and domain adaptation on Cityscapes and GTA5 datasets. The code is implemented in PyTorch and uses the DeepLabV and BieSNet model for semantic segmentation. and provided two different datasets as real and synthetic data. The `main.py` script serves as the primary executable to start the training process, guided by configurations specified in the `config.yaml` file.
+This repository contains the code for Real-Time Semantic Segmentation to address the Domain Shift problem with Domain Adaptation. The code is implemented in PyTorch and uses the DeepLabV and BieSNet model for semantic segmentation. and provided two different datasets as real and synthetic data. The `main.py` script serves as the primary executable to start the training process, guided by configurations specified in the `config.yaml` file.
 
 #### Prerequisites
 1. **Dependencies**: Install the required Python packages using the following command:
