@@ -99,11 +99,27 @@ training:
       
 # Augmentation Configuration
 augmentation:
+p: 0.5
   GaussianBlur:
-    p: 0.5
     kernel_size: 5, 9
     sigma : 0.1, 5
+
+  # ColorJitter:
+  #   brightness: 0.2
+  #   contrast: 0.2
+  #   saturation: 0.2
+  #   hue: 0.1
+
+  # RandomHorizontalFlip:
+  #   p : 0.5
   
+  # ColorJitterWithRandomBrightness:
+  #   brightness: 0.2
+  #   contrast: 0.2
+  #   saturation: 0.2
+  #   hue: 0.1
+  #   RandomHorizontalFlip_p : 0.5
+
 
 # Callbacks Configuration
 callbacks:
@@ -125,5 +141,10 @@ callbacks:
       project_name : "domain_adaptation"
       run_name : "v1"
       note : "Domain Adaptation"
+  
+  images_plots:
+    save_dir: "images"
+    number_of_samples: 4
+
 
 device: "cpu"  # "cuda" or "cpu"

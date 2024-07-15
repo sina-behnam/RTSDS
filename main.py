@@ -20,25 +20,64 @@ from utils import IntRangeTransformer, forModel
 from callbacks import Callback, WandBCallback
 import numpy as np
 
+def augmentation_loader(config, probabality : float) -> transforms.Compose:
+
+    augmentation = config.augmentation
+    
+    if augmentation.keys()[0] == 'GussianBlur':
+        gaussain_blue_cfg = augmentation.get('GaussianBlur')
+        kernel_size = [int(i) for i in gaussain_blue_cfg['kernel_size'].split(',')]
+        sigma = [float(i) for i in gaussain_blue_cfg['sigma'].split(',')]
+
+        Augmentation = transforms.RandomApply([
+            transforms.GaussianBlur(kernel_size=kernel_size,sigma=sigma)
+            ],
+            p=probabality)
+        
+
+    elif augmentation.keys()[0] == 'RandomHorizontalFlip':
+        random_horizontal_flip_cfg = augmentation.get('RandomHorizontalFlip')
+
+        Augmentation = transforms.RandomApply([
+            transforms.RandomHorizontalFlip(p=random_horizontal_flip_cfg['p'])
+            ], p=probabality)
+
+    elif augmentation.keys()[0] == 'ColorJitter':
+        color_jitter_cfg = augmentation.get('ColorJitter')
+        brightness = color_jitter_cfg['brightness']
+        contrast = color_jitter_cfg['contrast']
+        saturation = color_jitter_cfg['saturation']
+        hue = color_jitter_cfg['hue']
+
+        Augmentation = transforms.RandomApply([
+            transforms.ColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
+            ],
+            p=probabality)
+    
+    elif augmentation.keys()[0] == 'ColorJitterWithRandomBrightness':
+        color_jitter_cfg = augmentation.get('ColorJitterWithRandomBrightness')
+        brightness = color_jitter_cfg['brightness']
+        contrast = color_jitter_cfg['contrast']
+        saturation = color_jitter_cfg['saturation']
+        hue = color_jitter_cfg['hue']
+        random_horizontal_flip_p = color_jitter_cfg['RandomHorizontalFlip_p']
+
+        Augmentation = transforms.RandomApply([
+            transforms.ColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue),
+            transforms.RandomHorizontalFlip(p=random_horizontal_flip_p)
+            ],
+            p=probabality)
+
+    
+    return Augmentation
+
 def datasets_loader(config, is_augmented : bool) -> DataLoader:
 
     cityscapes = config.data.get('cityscapes')
     gta5 = config.data.get('gta5_modified')
 
     if is_augmented:
-        augmentation = config.augmentation
-        try:
-            gaussain_blue_cfg = augmentation.get('GaussianBlur')
-            kernel_size = [int(i) for i in gaussain_blue_cfg['kernel_size'].split(',')]
-            sigma = [float(i) for i in gaussain_blue_cfg['sigma'].split(',')]
-
-            Augmentation = transforms.RandomApply([
-                transforms.GaussianBlur(kernel_size=kernel_size,sigma=sigma)
-                ],
-                p=gaussain_blue_cfg['p'])
-        except KeyError:
-            raise NotImplementedError('The augmentation technique is not implemented yet, if you want to use other augmentation techniques \
-                                      please implement it in the datasets_loader function in the main.py file.')
+        Augmentation = augmentation_loader(config, probabality=0.5)
     
     cityscapes_image_size = [int(i) for i in cityscapes['image_size'].split(',')]
     gta5_image_size = [int(i) for i in gta5['image_size'].split(',')]
