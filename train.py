@@ -6,6 +6,8 @@ from callbacks import Callback
 from torch.utils.data import DataLoader
 import pandas as pd
 import torch.nn.functional as F
+from validation import val_GTA5
+
 
 try:
     from IPython import get_ipython
@@ -125,233 +127,6 @@ def train(
 
     return model
 
-def val2(
-    epoch: int,
-    model: torch.nn.Module,
-    val_loader: DataLoader,
-    num_classes: int,
-    class_names: list[str] = None,
-    detailed_report: bool = False,
-    callbacks: list[Callback] = [],
-    device: str = 'cpu'
-):
-    '''Combined validation function with optional detailed class reporting.
-
-    Args:
-        epoch (int): Current epoch number
-        model (nn.Module): Model to evaluate
-        val_loader (DataLoader): Validation loader
-        num_classes (int): Number of classes in the dataset
-        class_names (list): List of class names for reporting (optional, required if detailed_report is True)
-        detailed_report (bool): Whether to provide detailed per-class results
-        callbacks (list): List of callback functions to run during validation
-        device (str): Device to run the evaluation on, default is 'cpu'
-    
-    Returns:
-        float: Mean IoU for the validation set
-        pd.DataFrame (optional): DataFrame with class names and their IoU if detailed_report is True
-    '''
-    if detailed_report and not class_names:
-        raise ValueError("class_names must be provided if detailed_report is True")
-
-    # Run validation begin callbacks
-    for callback in callbacks:
-        callback.on_validation_begin()
-
-    model.eval()
-    total_confusion_matrix = np.zeros((num_classes, num_classes), dtype=np.int64)
-
-    with torch.no_grad():
-        for batch_idx, (inputs, targets) in enumerate(val_loader):
-            inputs = inputs.to(device)
-            targets = targets.to(device).squeeze(1)  # Ensure targets are [batch_size, height, width]
-
-            outputs = model(inputs)
-            if isinstance(outputs, tuple):
-                outputs = outputs[0]  # Select the main output if model returns a tuple
-
-            predicted = torch.argmax(outputs, dim=1).cpu().numpy()
-            targets = targets.cpu().numpy()
-
-            # Update confusion matrix using fast_hist
-            total_confusion_matrix += utils.fast_hist(targets, predicted, num_classes)
-
-            # Calculate True Positive on the confusion matrix
-            TP = np.diag(total_confusion_matrix)
-            # Calculate the Accuracy
-            pixel_acc = np.sum(TP) / np.sum(total_confusion_matrix)
-            # Loss
-            loss = 1. - pixel_acc
-
-            # Run validation batch end callbacks
-            for callback in callbacks:
-                callback.on_validation_batch_end(batch_idx, loss)
-
-    # Calculate per-class IoU from the confusion matrix
-    IoUs = utils.per_class_iou(total_confusion_matrix)
-    mean_iou = np.nanmean(IoUs)  # Calculate mean IoU, ignoring NaNs
-    print(f'Validation Mean IoU for Epoch {epoch + 1}: {mean_iou:.4f}')
-
-    if detailed_report:
-        # Create a DataFrame with class names and IoU values
-        class_result_df = pd.DataFrame({'Class': class_names, 'IoU': [f'{iou:.4f}' for iou in IoUs]})
-        print(class_result_df)
-
-        # Run validation end callbacks with detailed data
-        for callback in callbacks:
-            callback.on_validation_end({
-                'validation_mIoU': mean_iou
-            }, data=class_result_df)
-
-        return mean_iou, class_result_df
-    else:
-        # Run validation end callbacks without detailed data
-        for callback in callbacks:
-            callback.on_validation_end(mean_iou)
-
-        return mean_iou
-
-
-def val(
-    epoch : int,
-    model : torch.nn.Module,
-    val_loader : DataLoader,
-    num_classes : int,
-    device : str = 'cpu',
-    callbacks : list[Callback] = []):
-
-    '''Validation function 
-
-    Args:
-        epoch (int): Current epoch number
-        model (nn.Module): Model to evaluate
-        val_loader (DataLoader): Validation loader
-        num_classes (int): Number of classes in the dataset
-        device (str): Device to run the evaluation on
-        callbacks (list): List of callback functions to run during validation
-    
-    Returns:    
-        float: Mean IoU for the validation set
-    '''
-
-    # Run validation begin callbacks
-    for callback in callbacks:
-        callback.on_validation_begin()
-
-    model.eval()
-    total_hist = np.zeros((num_classes, num_classes))  # Initialize total histogram for all classes
-    with torch.no_grad():
-        for batch_idx, (inputs, targets) in enumerate(val_loader):
-            inputs = inputs.to(device)
-            targets = targets.to(device).squeeze(1)  # targets should be [batch_size, height, width]
-
-            outputs = model(inputs)
-
-            # Verify the shape of the outputs
-            if isinstance(outputs, tuple):
-                outputs = outputs[0]
-
-            predicted = torch.argmax(outputs, dim=1)
-
-            # Calculate fast histogram and accumulate
-            hist = utils.fast_hist(targets.cpu().numpy(), predicted.cpu().numpy(), num_classes)
-            total_hist += hist
-
-            # calculate True Positive on the confusion matrix
-            TP = np.diag(total_hist)
-            # calculate the Accuracy
-            pixel_acc = np.sum(TP) / np.sum(total_hist)
-            # loss
-            loss = 1. - pixel_acc
-
-            # Run validation end callbacks
-            for callback in callbacks:
-                callback.on_validation_batch_end(batch_idx, loss)
-
-    # Compute per-class IoU from the accumulated histogram
-    ious = utils.per_class_iou(total_hist)
-    mean_iou = np.nanmean(ious)  # Mean IoU for reporting
-    print(f'Validation Mean IoU for Epoch {epoch + 1}: {mean_iou:.4f}')
-
-    # Run validation end callbacks
-    for callback in callbacks:
-        callback.on_validation_end(mean_iou)
-
-    return mean_iou
-
-def val_GTA5(
-        epoch : int,
-        model : torch.nn.Module,
-        val_loader : DataLoader,
-        num_classes : int,
-        class_names : list[str],
-        callbacks : list[Callback] = [],
-        device : str = 'cpu'):
-    '''Validation function for GTA5 dataset, using the provided class names for reporting IoU per class.
-
-    Args:
-        epoch (int): Current epoch number
-        model (nn.Module): Model to evaluate
-        val_loader (DataLoader): Validation loader
-        num_classes (int): Number of classes in the dataset
-        class_names (list): List of class names for reporting
-        callbacks (list): List of callback functions to run during validation
-        device (str): Device to run the evaluation on, default is 'cpu'
-    
-    Returns:
-        float: Mean IoU for the validation set
-    '''
-    model.eval()
-    total_miou = 0
-
-    # Run validation begin callbacks
-    for callback in callbacks:
-        callback.on_validation_begin()
-
-    # Initialize confusion matrix
-    confusion_matrix = np.zeros((num_classes, num_classes), dtype=np.int64)
-
-    with torch.no_grad():
-        for batch_idx, (inputs, targets) in enumerate(val_loader):
-            inputs = inputs.to(device)
-            targets = targets.to(device).squeeze(1)  # Ensure targets are [batch_size, height, width]
-
-            outputs = model(inputs)
-            if isinstance(outputs, tuple):
-                outputs = outputs[0]  # Select the main output if model returns a tuple
-
-            predicted = torch.argmax(outputs, dim=1).cpu().numpy()
-            targets = targets.cpu().numpy()
-
-            # Update confusion matrix using fast_hist
-            confusion_matrix += utils.fast_hist(targets, predicted, num_classes)
-
-            # calculate True Positive on the confusion matrix
-            TP = np.diag(confusion_matrix)
-            # calculate the Accuracy
-            pixel_acc = np.sum(TP) / np.sum(confusion_matrix)
-            # loss
-            loss = 1. - pixel_acc
-            # Run validation end callbacks
-            for callback in callbacks:
-                callback.on_validation_batch_end(batch_idx, loss)
-
-    # Calculate per class IoU from the confusion matrix
-    IoUs = utils.per_class_iou(confusion_matrix)
-    total_miou = np.nanmean(IoUs)  # Calculate mean IoU, ignoring NaNs
-    print(f'Validation mIoU for Epoch {epoch + 1}: {total_miou:.4f}')
-    
-    class_result_df = pd.DataFrame({'Class': class_names, 'IoU': [f'{iou:.4f}' for iou in IoUs]})
-    print(class_result_df)
-    # Run validation end callbacks
-    for callback in callbacks:
-        callback.on_validation_end({
-            'validation_mIoU': total_miou
-        },data=class_result_df)
-
-    return total_miou, class_result_df
-
-
 def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Module, discriminator : torch.nn.Module,
            generator_optimizer : torch.optim.Optimizer, discriminator_optimizer : torch.optim.Optimizer,
             source_dataloader : DataLoader, target_dataloader : DataLoader,
@@ -360,6 +135,11 @@ def adversarial_train(iterations : int ,epochs : int, generator : torch.nn.Modul
             num_classes : int, class_names : list[str], val_loader : DataLoader,do_validation : int = 1,
             device : str = 'cpu', when_print : int = 10, callbacks : list[Callback]  = []):
     
+
+    '''
+    Train a generator and discriminator in an adversarial setting for domain adaptation. Based on the implementation of the paper:
+    https://openaccess.thecvf.com/content_cvpr_2018/papers/Tsai_Learning_to_Adapt_CVPR_2018_paper.pdf
+    '''
 
     # defining the target interpolation
     # target_interpolation = torch.nn.Upsample(size=(target_dataloader.dataset[0][1].shape[1],target_dataloader.dataset[0][1].shape[2]), mode='bilinear')
@@ -548,55 +328,18 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
             do_validation : int = 1,device : str = 'cpu', when_print : int = 10, callbacks : list[Callback]  = []):
     
     """
-    Train a generator and discriminator in an adversarial setting for domain adaptation.
+    Our implementation of the adversarial training for the domain adaptation,
 
-    This function implements the adversarial training loop for a GAN-like model, where the generator learns to generate
-    realistic samples that can fool the discriminator into classifying source domain samples as target domain samples.
+    the difference between this implementation and the previous one are as follows:
 
-    Args:
-        iterations (int): Number of iterations per epoch.
-        epochs (int): Total number of training epochs.
-        generator (torch.nn.Module): The generator network to be trained.
-        discriminator (torch.nn.Module): The discriminator network to be trained.
-        generator_optimizer (torch.optim.Optimizer): Optimizer for the generator.
-        discriminator_optimizer (torch.optim.Optimizer): Optimizer for the discriminator.
-        source_dataloader (DataLoader): DataLoader for the source domain.
-        target_dataloader (DataLoader): DataLoader for the target domain.
-        generator_loss (torch.nn.Module): Loss function for the generator.
-        discriminator_loss (torch.nn.Module): Loss function for the discriminator.
-        lambda_ (float): Weight for the adversarial loss component in the generator's total loss.
-        gen_init_lr (float): Initial learning rate for the generator.
-        gen_power (float): Power factor for the polynomial learning rate decay for the generator.
-        dis_power (float): Power factor for the polynomial learning rate decay for the discriminator.
-        dis_init_lr (float): Initial learning rate for the discriminator.
-        lr_decay_iter (float): Interval in iterations for learning rate decay.
-        num_classes (int): Number of output classes for the segmentation task.
-        class_names (list[str]): List of class names corresponding to the output classes.
-        val_loader (DataLoader): DataLoader for the validation set.
-        do_validation (int, optional): Frequency (in epochs) to perform validation. Default is 1.
-        device (str, optional): Device to run the training on ('cpu' or 'cuda'). Default is 'cpu'.
-        when_print (int, optional): Frequency (in iterations) for printing the progress. Default is 10.
-        callbacks (list[Callback], optional): List of callback objects to handle events during training. Default is an empty list.
-
-    Returns:
-        None
-
-    Notes:
-        - The source domain typically represents synthetic or less complex data, while the target domain represents real-world data.
-        - Real and fake labels for the discriminator are created for the adversarial training process.
-        - This implementation uses an `adaptive average pooling` to ensure the size compatibility between different domains.
-        - The learning rate scheduler uses a `polynomial decay` strategy based on the current iteration.
-        - Generator and discriminator are updated alternately within each iteration of training.
-        - Validation and callback mechanisms are incorporated to monitor training progress.
-    """
+    1. The Discriminator is trained with the real segmentation from the target domain.
+    2. The output size of the Discriminator is consider (1,1).
+    3. regarding the size of input images, every things are become same size of the target image. by using the adaptive_avg_pool2d function.
 
     ## Notice: 
     # real_seg ---> Target Domain
     # fake_seg ---> Source Domain
-
-    # defining the target interpolation
-    # target_interpolation = torch.nn.Upsample(size=(target_dataloader.dataset[0][1].shape[1],target_dataloader.dataset[0][1].shape[2]), mode='bilinear')
-    
+    """
     for epoch in range(epochs):
 
         generator.train()
@@ -614,8 +357,6 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
 
         best_mIoU = 0.0
         
-        # gen_lr = utils.poly_lr_scheduler(generator_optimizer, gen_lr , epoch, lr_decay_iter, epochs, gen_power)
-
         max_iter = epochs * iterations
 
         for i in tqdm(range(iterations),total=iterations,desc=f'Epoch {epoch}'):
@@ -703,9 +444,7 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
 
                 real_seg = F.adaptive_avg_pool2d(real_seg, (target_size[2], target_size[3]))
 
-            # forward pass the real and fake segmentation to the discriminator
-            # * - [1] This is an idea that we may able to train the discriminator with the real_seg from source label
-            # *       Not with the output of the generator.
+            
             d_real_output = discriminator(F.softmax(real_seg.detach(),dim=1)).requires_grad_(True)
             d_fake_output = discriminator(F.softmax(fake_seg.detach(),dim=1)).requires_grad_(True)
 
@@ -714,7 +453,6 @@ def adversarial_train_2(iterations : int ,epochs : int, generator : torch.nn.Mod
             d_fake_loss = discriminator_loss(d_fake_output, fake_labels)
 
             # calculate the total loss for the discriminator (Average the loss)
-            # * - [3] You might want to use the average loss instead of the sum of the loss
             d_loss = (d_real_loss + d_fake_loss) 
             # backward the loss
             d_loss.backward()

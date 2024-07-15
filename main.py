@@ -10,74 +10,57 @@ from torch.utils.data import DataLoader
 import torch
 from models.deeplabv2 import deeplabv2
 from models.domain_shift.adversarial.model import DomainDiscriminator,TinyDomainDiscriminator
-from train import train, val, val_GTA5, adversarial_train_2, val2
+from train import train, adversarial_train_2
 from models.bisenet import build_bisenet
 from torch.utils.data import DataLoader
 from collections import namedtuple
 from datasets.cityscapes import CityScapes
 from datasets.gta5 import GTA5
+from validation import val, val2, val_GTA5
 from utils import IntRangeTransformer, forModel
 from callbacks import Callback, WandBCallback
 import numpy as np
 
-def augmentation_loader(config, probabality : float) -> transforms.Compose:
 
+def _augmentator_(name, config):
+    if name == 'GaussianBlur':
+        gaussian_blur_cfg = config.get('GaussianBlur')
+        kernel_size = [int(i) for i in gaussian_blur_cfg['kernel_size'].split(',')]
+        sigma = [float(i) for i in gaussian_blur_cfg['sigma'].split(',')]
+        return transforms.GaussianBlur(kernel_size=kernel_size, sigma=sigma)
+            
+    elif name == 'RandomHorizontalFlip':
+        random_horizontal_flip_cfg = config.get('RandomHorizontalFlip')
+        return transforms.RandomHorizontalFlip(p=random_horizontal_flip_cfg['p'])
+            
+    elif name == 'ColorJitter':
+        color_jitter_cfg = config.get('ColorJitter')
+        brightness = color_jitter_cfg['brightness']
+        contrast = color_jitter_cfg['contrast']
+        saturation = color_jitter_cfg['saturation']
+        hue = color_jitter_cfg['hue']
+        return transforms.ColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
+
+    return None
+
+def augmentation_loader(config, probability: float) -> transforms.Compose:
     augmentation = config.augmentation
-    
-    if augmentation.keys()[0] == 'GussianBlur':
-        gaussain_blue_cfg = augmentation.get('GaussianBlur')
-        kernel_size = [int(i) for i in gaussain_blue_cfg['kernel_size'].split(',')]
-        sigma = [float(i) for i in gaussain_blue_cfg['sigma'].split(',')]
 
-        Augmentation = transforms.RandomApply([
-            transforms.GaussianBlur(kernel_size=kernel_size,sigma=sigma)
-            ],
-            p=probabality)
+    _aug_list_ = []
+
+    for key in augmentation.keys():
+        aug = _augmentator_(key, config=augmentation)
+        if aug is not None:
+            _aug_list_.append(aug)
+  
+
+    return transforms.RandomApply(_aug_list_, p=probability)
         
-
-    elif augmentation.keys()[0] == 'RandomHorizontalFlip':
-        random_horizontal_flip_cfg = augmentation.get('RandomHorizontalFlip')
-
-        Augmentation = transforms.RandomApply([
-            transforms.RandomHorizontalFlip(p=random_horizontal_flip_cfg['p'])
-            ], p=probabality)
-
-    elif augmentation.keys()[0] == 'ColorJitter':
-        color_jitter_cfg = augmentation.get('ColorJitter')
-        brightness = color_jitter_cfg['brightness']
-        contrast = color_jitter_cfg['contrast']
-        saturation = color_jitter_cfg['saturation']
-        hue = color_jitter_cfg['hue']
-
-        Augmentation = transforms.RandomApply([
-            transforms.ColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
-            ],
-            p=probabality)
-    
-    elif augmentation.keys()[0] == 'ColorJitterWithRandomBrightness':
-        color_jitter_cfg = augmentation.get('ColorJitterWithRandomBrightness')
-        brightness = color_jitter_cfg['brightness']
-        contrast = color_jitter_cfg['contrast']
-        saturation = color_jitter_cfg['saturation']
-        hue = color_jitter_cfg['hue']
-        random_horizontal_flip_p = color_jitter_cfg['RandomHorizontalFlip_p']
-
-        Augmentation = transforms.RandomApply([
-            transforms.ColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue),
-            transforms.RandomHorizontalFlip(p=random_horizontal_flip_p)
-            ],
-            p=probabality)
-
-    
-    return Augmentation
 
 def datasets_loader(config, is_augmented : bool) -> DataLoader:
 
     cityscapes = config.data.get('cityscapes')
     gta5 = config.data.get('gta5_modified')
-
-    if is_augmented:
-        Augmentation = augmentation_loader(config, probabality=0.5)
     
     cityscapes_image_size = [int(i) for i in cityscapes['image_size'].split(',')]
     gta5_image_size = [int(i) for i in gta5['image_size'].split(',')]
@@ -101,7 +84,8 @@ def datasets_loader(config, is_augmented : bool) -> DataLoader:
     ]
 
     if is_augmented:
-        GTA5_transforms.insert(0, Augmentation)
+        Augmentations = augmentation_loader(config, probability=0.5)
+        GTA5_transforms.insert(0, Augmentations)
 
     input_transform_GTA5 = transforms.Compose(GTA5_transforms)
 
@@ -246,17 +230,6 @@ def model_loader(config : dict,is_adversarial : bool, model_name : str):
     
     return model, optimizer_loss[0], optimizer_loss[1], model_hparams
 
-def segmentation_train_driver(config,
-                                model_items : dict,
-                                train_dataloader : DataLoader,
-                                val_dataloader : DataLoader,
-                                do_validation : int,
-                                when_print : int,
-                                callbacks : list,
-                                ):
-    
-    pass
-
 def argumnet_parser():
 
     ## write a parser for the arguments
@@ -264,6 +237,10 @@ def argumnet_parser():
     ## defining the config.yaml file
     parser.add_argument('--config', type=str, default='config.yaml', help='Path to the config file. [Default is config.yaml.]')
     # setting the augmentation flag
+    parser.add_argument('--dataset', type=str, default='cityscapes', help='Dataset to be used for training. \
+                         This option only appliable to training without domain adaptation purpose \
+                        [The available datasets are cityscapes and gta5. Default is cityscapes.]')
+
     parser.add_argument('--augmented', action='store_true', help='If augmentation is to be performed on the dataset. \
                         The augmentation is only applied on GTA5 images dataset. [Default is False.]')
     ## add to the parser if it adversarial or not
@@ -357,6 +334,11 @@ if __name__ == '__main__':
         ),        
 
     else:
+
+        if args.dataset == 'gta5':
+            print(' ------> The Training the model on GTA5 dataset and validating on Cityscapes dataset ------ ')
+            train_dataloader = train_dataloaderGTA5
+
         model_complex = model_loader(config, is_adversarial=False, model_name=args.model)
         model, optimizer, criterion, model_hparams = model_complex
 

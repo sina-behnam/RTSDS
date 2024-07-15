@@ -99,10 +99,14 @@ training:
       
 # Augmentation Configuration
 augmentation:
-p: 0.5
+  p: 0.5
+
   GaussianBlur:
     kernel_size: 5, 9
     sigma : 0.1, 5
+
+  RandomHorizontalFlip:
+    p : 0.5
 
   # ColorJitter:
   #   brightness: 0.2
@@ -110,8 +114,6 @@ p: 0.5
   #   saturation: 0.2
   #   hue: 0.1
 
-  # RandomHorizontalFlip:
-  #   p : 0.5
   
   # ColorJitterWithRandomBrightness:
   #   brightness: 0.2
