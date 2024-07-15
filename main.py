@@ -362,7 +362,7 @@ if __name__ == '__main__':
                 device=config.device
             )
 
-            val2(
+            val(
                 epoch=epoch,
                 model=model,
                 val_loader=val_dataloader,
